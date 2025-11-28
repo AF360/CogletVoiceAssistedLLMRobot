@@ -12,8 +12,6 @@ Parts of the servo control and face tracking logic are adapted from work by
 [Will Cogley](https://www.willcogley.com/), used under the same license (CC BY-NC-SA 4.0).
 We have modified and extended the original code for the Coglet project.
 
-For commercial use, licensing, or collaboration requests regarding this code, please contact: enquiries@acelab.net
-
 ## Hardware used: 
 - 1x Raspberry Pi 5 8GB with USB-C power supply
 - 1x Seeedstudio Grove AI Vision V2 with camera (needs to fit into eyeball, some cameras have a too big PCB to fit), you can get this from Will Cogley's online shop: https://nmrobots.com/products/grove-vision-ai-module-v2-hd-camera-adaptor-15-pin-flex-cable

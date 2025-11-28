@@ -1,5 +1,5 @@
 # CHANGELOG
 
-## Close to release
+## Initial public release
 ### Added
 - Code cleanup

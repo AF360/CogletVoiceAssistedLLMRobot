@@ -1,0 +1,74 @@
+{
+  "servos": [
+    {
+      "channel": 0,
+      "max_deg": 71.0,
+      "min_deg": -30.0,
+      "start_deg": 19.0,
+      "stop_deg": 0.0
+    },
+    {
+      "channel": 1,
+      "max_deg": 88.0,
+      "min_deg": -5.0,
+      "start_deg": 23.0,
+      "stop_deg": 0.0
+    },
+    {
+      "channel": 2,
+      "max_deg": 58.0,
+      "min_deg": -85.0,
+      "start_deg": 28.0,
+      "stop_deg": 0.0
+    },
+    {
+      "channel": 3,
+      "max_deg": 21.0,
+      "min_deg": -69.0,
+      "start_deg": 0.0,
+      "stop_deg": 0.0
+    },
+    {
+      "channel": 4,
+      "max_deg": 88.0,
+      "min_deg": -23.0,
+      "start_deg": 34.0,
+      "stop_deg": 0.0
+    },
+    {
+      "channel": 5,
+      "max_deg": 88.0,
+      "min_deg": -56.0,
+      "start_deg": 14.0,
+      "stop_deg": 0.0
+    },
+    {
+      "channel": 6,
+      "max_deg": 70.0,
+      "min_deg": -61.0,
+      "start_deg": 0.0,
+      "stop_deg": 0.0
+    },
+    {
+      "channel": 7,
+      "max_deg": 61.0,
+      "min_deg": -89.0,
+      "start_deg": 0.0,
+      "stop_deg": 0.0
+    },
+    {
+      "channel": 8,
+      "max_deg": 90.0,
+      "min_deg": -88.0,
+      "start_deg": 0.0,
+      "stop_deg": 0.0
+    },
+    {
+      "channel": 9,
+      "max_deg": 88.0,
+      "min_deg": -88.0,
+      "start_deg": 0.0,
+      "stop_deg": 0.0
+    }
+  ]
+}

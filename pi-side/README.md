@@ -51,6 +51,12 @@ Piper is not started directly by `coglet-pi.py` but via a separate MQTT bridge:
 - The `say` helper script sends `{"id": "...", "text": "..."}` JSON payloads to `coglet/tts/say` and stores the last ID in `/run/piper/last_id`.
 - The `say-cancel` script sends the ID (explicit or last ID) to `coglet/tts/cancel`.
 
+By default, Coglet is configured to use the Piper voice `en_US-lessac-high`.
+You can change this by setting the `PIPER_VOICE` environment variable, e.g.:
+PIPER_VOICE=en_GB-cori-high
+PIPER_VOICE=en_US-ryan-high
+PIPER_VOICE=de_DE-thorsten-high
+
 `coglet-pi.py` uses MQTT-based TTS by default (`TTS_MODE=mqtt`) and falls back to a local FIFO or one-shot Piper+aplay pipeline if MQTT is not available.
 
 ## Servo layout (PCA9685)

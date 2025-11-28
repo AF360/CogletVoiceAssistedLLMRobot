@@ -1,7 +1,7 @@
 # Coglet VoiceAssistedLLM Robot
 A robot-/animatronics-prototype with voice-I/O-interface to a local LLM running on a GPU in a client-server-architecture for natural language communication
 
-Project-aim: **WakeWord-Detetion** →  **Spoken Input** → **Whisper (Faster-Whisper STT)** → **Ollama** → **spoken Reply** (Piper-TTS) incl. **Robot eye- and head-animations, facetracking, optional status-LED** → **Followup-conversation mode**.  
+Project-aim: **WakeWord-detection** →  **spoken input** → **Whisper (Faster-Whisper STT)** → **Ollama** → **spoken reply** (Piper-TTS) incl. **Robot eye- and head-animations, facetracking, optional status-LED** → **Followup-conversation mode**.  
 
 
 ## License and Credits

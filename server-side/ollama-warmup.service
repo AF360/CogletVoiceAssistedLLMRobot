@@ -1,0 +1,15 @@
+# /etc/systemd/system/ollama-warmup.service
+[Unit]
+Description=Warm up Ollama model
+After=ollama.service
+Requires=ollama.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl --max-time 110 -sS -X POST http://127.0.0.1:11434/api/chat \
+  -d '{"model":"coglet","keep_alive":"45m","messages":[{"role":"user","content":"Hello"}],"stream":false}'
+TimeoutSec=120
+
+[Install]
+WantedBy=multi-user.target
+

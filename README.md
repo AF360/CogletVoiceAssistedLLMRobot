@@ -1,3 +1,4 @@
+![Coglet1](images/Coglet1.jpg) ![Coglet2](images/Coglet2.jpg) ![Coglet3](images/Coglet3.jpg) 
 
 # Coglet VoiceAssistedLLM Robot
 A robot-/animatronics-prototype with voice-I/O-interface to a local LLM running on a GPU in a client-server-architecture for natural language communication

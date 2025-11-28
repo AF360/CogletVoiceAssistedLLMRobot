@@ -53,9 +53,11 @@ Piper is not started directly by `coglet-pi.py` but via a separate MQTT bridge:
 
 By default, Coglet is configured to use the Piper voice `en_US-lessac-high`.
 You can change this by setting the `PIPER_VOICE` environment variable, e.g.:
+```
 PIPER_VOICE=en_GB-cori-high
 PIPER_VOICE=en_US-ryan-high
 PIPER_VOICE=de_DE-thorsten-high
+```
 
 `coglet-pi.py` uses MQTT-based TTS by default (`TTS_MODE=mqtt`) and falls back to a local FIFO or one-shot Piper+aplay pipeline if MQTT is not available.
 

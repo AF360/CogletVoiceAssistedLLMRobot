@@ -1,4 +1,4 @@
-https://github.com/AF360/CogletVoiceAssistedLLMRobot/blob/main/coglet.jpg?raw=true
+![Coglet Image](coglet.jpg)
 
 # Coglet VoiceAssistedLLM Robot
 A robot-/animatronics-prototype with voice-I/O-interface to a local LLM running on a GPU in a client-server-architecture for natural language communication

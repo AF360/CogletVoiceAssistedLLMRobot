@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-### --- Endpunkte / Modelle ---
+### --- Endppoints / models ---
 export STT_URL="http://192.168.10.161:5005"
 export STT_RESAMPLE_TO_HZ="16000"
 export STT_LANG="de"
@@ -10,15 +10,15 @@ export PIPER_FIFO="/run/piper/in.jsonl"
 export PIPER_EVENTS_FIFO="/run/piper/events"
 export PIPER_CTRL_FIFO="/run/piper/ctrl"
 export PIPER_BIN="/opt/piper/piper"
-export PIPER_MODEL="/opt/piper/voices/de_DE-thorsten-high.onnx"
-export PIPER_CFG="/opt/piper/voices/de_DE-thorsten-high.onnx.json"
-export PIPER_VOICE="/opt/piper/voices/de_DE-thorsten-high.onnx"
-export PIPER_VOICE_JSON="/opt/piper/voices/de_DE-thorsten-high.onnx.json"
+export PIPER_MODEL="/opt/piper/voices/en_US-ryan-high.onnx"
+export PIPER_CFG="/opt/piper/voices/en_US-ryan-high.onnx.json"
+export PIPER_VOICE="/opt/piper/voices/en_US-ryan-high.onnx"
+export PIPER_VOICE_JSON="/opt/piper/voices/en_US-ryan-high.onnx.json"
 export SPEAKER_DEVICE="spk"
 export APLAY_FORMAT="S16_LE"
-export MODEL_CONFIRM="Ja?"
-export MODEL_READY="Alle Subsysteme bereit. Ich erwarte das Wähkwört."
-export MODEL_BYEBYE="Tschüssen!"
+export MODEL_CONFIRM="Yes?"
+export MODEL_READY="All subsystems running. Listening for the wakeword."
+export MODEL_BYEBYE="See ya!"
 
 ### --- Demo mode ---
 export DEMOMODE="0"   # Skip startup checks, wakeword, audio, MQTT; only face tracking + eyelid/ear animations
@@ -48,7 +48,8 @@ export VAD_END_GUARD_MS="1200"
 
 ### --- Wakeword / OpenWakeWord ---
 export WAKEWORD_BACKEND="oww"
-export OWW_MODEL="/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/wheatley.onnx"
+# Todo: train Coglet-model, for now the wakeword is winston
+export OWW_MODEL="/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/winston.onnx"
 export OWW_THRESHOLD="0.3"
 export OWW_WIN_MS="800"
 export OWW_HOP_MS="160"
@@ -81,9 +82,9 @@ LOG_LEVEL="DEBUG"
 
 ### --- Piper via MQTT ---
 export TTS_MODE="mqtt"
-export PIPER_MQTT_HOST="127.0.0.1"           # or your broker IP
+export PIPER_MQTT_HOST="127.0.0.1"           
 export PIPER_MQTT_PORT="1883"
-export PIPER_MQTT_TOPIC="coglet/tts"          # topic where your Piper-MQTT listens
+export PIPER_MQTT_TOPIC="coglet/tts"          
 export MQTT_BASE="coglet/tts"
 export PIPER_MQTT_USERNAME=""
 export PIPER_MQTT_PASSWORD=""

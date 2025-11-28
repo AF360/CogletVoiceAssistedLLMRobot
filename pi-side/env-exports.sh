@@ -5,7 +5,7 @@ export STT_URL="http://192.168.10.161:5005"
 export STT_RESAMPLE_TO_HZ="16000"
 export STT_LANG="de"
 export OLLAMA_URL="http://192.168.10.161:11434"
-export OLLAMA_MODEL="wheatley"
+export OLLAMA_MODEL="coglet:latest"
 export PIPER_FIFO="/run/piper/in.jsonl"
 export PIPER_EVENTS_FIFO="/run/piper/events"
 export PIPER_CTRL_FIFO="/run/piper/ctrl"
@@ -18,6 +18,7 @@ export SPEAKER_DEVICE="spk"
 export APLAY_FORMAT="S16_LE"
 export MODEL_CONFIRM="Yes?"
 export MODEL_READY="All subsystems running. Listening for the wakeword."
+### For now the wakeword is "winston", we need to train a "Coglet"-wakeword
 export MODEL_BYEBYE="See ya!"
 
 ### --- Demo mode ---
@@ -62,15 +63,15 @@ export COOLDOWN_AFTER_TTS_S="1.2"   # kann ggf. auf 1.5 erhöht werden
 
 ### --- Conversation awareness settings
 export FOLLOWUP_ENABLE=1            
-export FOLLOWUP_ARM_S=3.0           # Zeitfenster, in dem die nächste Äußerung starten darf
-export FOLLOWUP_MAX_TURNS=0         # max. Folge-Turns nach einem Wake (0 = unbegrenzt)
-export FOLLOWUP_COOLDOWN_S=0.10     # ganz kurzer Cooldown vorm Follow-up-Hören
-export LLM_USE_CHAT=1		    # LLM context-aware
-export LLM_RESET_ON_WAKE=1	    # New context each time the Wakeword initiates a new sessio
+export FOLLOWUP_ARM_S=3.0           # time window for starting followup question
+export FOLLOWUP_MAX_TURNS=0         # max. followup-turns after a wake (0 = unlimited)
+export FOLLOWUP_COOLDOWN_S=0.10     # short cooldown before Follow-up-listening
+export LLM_USE_CHAT=1		            # LLM context-aware
+export LLM_RESET_ON_WAKE=1	        # New context each time the Wakeword initiates a new sessio
 export LLM_CTX_TURNS=10
 # export LLM_SYSTEM_PROMPT="Du bist Coglet, ein freundlicher, faktentreuer Roboter-Assistent. Antworte knapp und präzise auf Deutsch. Verwende die Du-Form."
 export LLM_TEMPERATURE=0.3
-export LLM_NUM_CTX=8192             # 4096 on weaker systems
+export LLM_NUM_CTX=8192             # use 4096 on weaker systems
 export LLM_KEEP_ALIVE="30m"
 
 ### --- Coglet EyeController-Board communication, will be required later
@@ -96,7 +97,7 @@ export ENABLE_LED="1"
 
 export FOLLOWUP_GUARD_SEC=1.0
 export POST_TTS_GUARD_SEC=1.0
-export EOC_ACK="Alles klar."
+export EOC_ACK="OK."
 
 ### --- Face Tracking (Grove Vision AI + PCA9685-Servos) ---
 # Master switch

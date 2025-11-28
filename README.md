@@ -12,6 +12,7 @@ Parts of the servo control and face tracking logic are adapted from work by
 [Will Cogley](https://www.willcogley.com/), used under the same license (CC BY-NC-SA 4.0).
 We have modified and extended the original code for the Coglet project.
 
+For commercial use, licensing, or collaboration requests regarding this code, please contact: enquiries@acelab.net
 
 ## Hardware used: 
 - 1x Raspberry Pi 5 8GB with USB-C power supply

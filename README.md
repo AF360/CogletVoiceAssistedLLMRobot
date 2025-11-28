@@ -1,4 +1,4 @@
-![Coglet1](images/Coglet01.jpg)     ![Coglet3](images/Coglet03.jpg) 
+![Coglet1](images/Coglet01.jpg)  
 
 # Coglet VoiceAssistedLLM Robot
 A robot-/animatronics-prototype with voice-I/O-interface to a local LLM running on a GPU in a client-server-architecture for natural language communication
@@ -39,3 +39,5 @@ We have modified and extended the original code for the Coglet project.
 ## Folder structure
 - Folder `pi-side` — contains the software running on the Raspberry Pi inside the Coglet robot: Mosquitto-MQTT-server, Piper-MQTT-service, AI face detection code, servo-control code and the central Coglet-Pi-code
 - Folder `server-side` — contains the software running on the Linux server with RTX GPU: Faster-Whisper with Flask and the large-v3-turbo model, Ollama with LLM Qwen-2.5:7b-instruct (or similar) customized with "Coglet"-modelfile
+
+![Coglet3](images/Coglet02.jpg)   ![Coglet3](images/Coglet03.jpg) 

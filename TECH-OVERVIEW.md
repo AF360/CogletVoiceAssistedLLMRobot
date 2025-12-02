@@ -58,7 +58,6 @@ Environment variables for this process are listed in the same docstring (`pi-sid
 - STT and LLM: `STT_URL`, `OLLAMA_URL`, `OLLAMA_MODEL`, `LLM_KEEP_ALIVE`
 - Audio input: `MIC_SR`, `MIC_DEVICE`
 - Wake-word: `WAKEWORD_BACKEND`, `OWW_MODEL`, `OWW_THRESHOLD`
-- VAD: `VAD_AGGRESSIVENESS`, `VAD_MAX_SIL_MS`, `VAD_MIN_SPEECH_MS`, `MAX_UTTERANCE_S`
 - TTS: `PIPER_VOICE`, `PIPER_VOICE_JSON`, `PIPER_FIFO`, `TTS_WPM`, `TTS_PUNCT_PAUSE_MS`
 
 In addition to the docstring, `coglet-pi.py` defines further TTS-related configuration such as `TTS_MODE` and MQTT settings

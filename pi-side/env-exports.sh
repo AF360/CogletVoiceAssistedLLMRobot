@@ -18,7 +18,7 @@ export SPEAKER_DEVICE="spk"
 export APLAY_FORMAT="S16_LE"
 export MODEL_CONFIRM="Yes?"
 export MODEL_READY="All subsystems running. Listening for the wakeword."
-### For now the wakeword is "winston", we need to train a "Coglet"-wakeword
+### For now the wakeword is "Scarlett", we need to train a "Coglet"-wakeword
 export MODEL_BYEBYE="See ya!"
 
 ### --- Demo mode ---
@@ -33,7 +33,6 @@ export MIC_TARGET_DBFS="-18"
 export MIC_MAX_GAIN_DB="35"
 export SPEAKER_DEVICE="spk"  # with dmix use "spk"
 export BARGE_IN="1"
-export TTS_MODE="FIFO"
 
 ### --- VAD / Endpointing (WebRTC) ---
 export VAD_AGGR="2"
@@ -49,8 +48,8 @@ export VAD_END_GUARD_MS="1200"
 
 ### --- Wakeword / OpenWakeWord ---
 export WAKEWORD_BACKEND="oww"
-# Todo: train Coglet-model, for now the wakeword is winston
-export OWW_MODEL="/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/winston.onnx"
+# Todo: train Coglet oww-model, for now the wakeword is Scarlett
+export OWW_MODEL="/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/Scarlett.onnx"
 export OWW_THRESHOLD="0.3"
 export OWW_WIN_MS="800"
 export OWW_HOP_MS="160"
@@ -59,7 +58,7 @@ export OWW_SUPPRESS_AFTER_TTS_S="0.8"
 export WAKE_REARM_RATIO="0.6"
 export WAKE_REARM_LOW_COUNT="3"
 export WAKE_MIN_GAP_S="1.5"
-export COOLDOWN_AFTER_TTS_S="1.2"   # kann ggf. auf 1.5 erhöht werden
+export COOLDOWN_AFTER_TTS_S="1.2"   # can be increased to 1.5 
 
 ### --- Conversation awareness settings
 export FOLLOWUP_ENABLE=1            
@@ -69,7 +68,6 @@ export FOLLOWUP_COOLDOWN_S=0.10     # short cooldown before Follow-up-listening
 export LLM_USE_CHAT=1		            # LLM context-aware
 export LLM_RESET_ON_WAKE=1	        # New context each time the Wakeword initiates a new sessio
 export LLM_CTX_TURNS=10
-# export LLM_SYSTEM_PROMPT="Du bist Coglet, ein freundlicher, faktentreuer Roboter-Assistent. Antworte knapp und präzise auf Deutsch. Verwende die Du-Form."
 export LLM_TEMPERATURE=0.3
 export LLM_NUM_CTX=8192             # use 4096 on weaker systems
 export LLM_KEEP_ALIVE="30m"
@@ -95,9 +93,8 @@ export PIPER_MQTT_TLS="0"
 ### --- Status LED ---
 export ENABLE_LED="1"
 
-export FOLLOWUP_GUARD_SEC=1.0
-export POST_TTS_GUARD_SEC=1.0
-export EOC_ACK="OK."
+### --- end of conversation mode ---
+export EOC_ACK="OK. Waiting for next wakeword"
 
 ### --- Face Tracking (Grove Vision AI + PCA9685-Servos) ---
 # Master switch
@@ -128,7 +125,7 @@ export FACE_TRACKING_COORDINATES_CENTER="1"
 export FACE_TRACKING_EYE_DEADZONE_PX="10.0"
 export FACE_TRACKING_PITCH_DEADZONE_PX="18.0"
 export FACE_TRACKING_EYE_GAIN_DEG_PER_PX="0.08"
-export FACE_TRACKING_PITCH_GAIN_DEG_PER_PX="-0.06"
+export FACE_TRACKING_PITCH_GAIN_DEG_PER_PX="0.06"
 export FACE_TRACKING_EYE_MAX_DELTA_DEG="20.0"
 export FACE_TRACKING_PITCH_MAX_DELTA_DEG="20.0"
 export FACE_TRACKING_INVOKE_INTERVAL_S="0.15"

@@ -1,4 +1,4 @@
-"""Helfer zum Laden und Anwenden von Servo-Kalibrierungen."""
+"""Helper function to load and apply servo-calibration data."""
 
 from __future__ import annotations
 
@@ -44,7 +44,8 @@ def _default_calibration_paths() -> Tuple[Path, ...]:
     module_root = Path(__file__).resolve()
     repo_root = module_root.parent.parent.parent
     pi_side_root = module_root.parent.parent
-    base_dirs = (Path.cwd(), repo_root, pi_side_root)
+    hardware_root = module_root.parent
+    base_dirs = (hardware_root, Path.cwd(), repo_root, pi_side_root)
     names = ("servo-calibration.json", "servo_calibration.json")
 
     seen = set()
@@ -158,4 +159,3 @@ def apply_calibration_to_config(base: ServoConfig, calibration: ServoCalibration
         invert=base.invert,
         pwm_frequency_hz=base.pwm_frequency_hz,
     )
-

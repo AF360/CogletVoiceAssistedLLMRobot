@@ -11,7 +11,7 @@ face-tracking mini bot reference code (main.py), in particular:
 Original work by Will Cogley, used under the Creative Commons
 Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0).
 
-Original: main.py from Will Cogley's reference code
+Original: main.py from Will Cogley's Halloween-watcher reference code
 License: https://creativecommons.org/licenses/by-nc-sa/4.0/
 Modifications and refactoring for Coglet by Andreas Fatum, 2025.
 """
@@ -76,7 +76,8 @@ class FaceTrackingConfig:
     pitch_deadzone_px: float = 18.0
     eye_gain_deg_per_px: float = 0.08
     yaw_gain_deg_per_px: float = 0.05
-    pitch_gain_deg_per_px: float = -0.06
+    # pitch gain vorher -0.06
+    pitch_gain_deg_per_px: float = 0.06
     eye_max_delta_deg: float = 20.0
     yaw_max_delta_deg: float = 30.0
     pitch_max_delta_deg: float = 20.0

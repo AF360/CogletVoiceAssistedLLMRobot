@@ -1,12 +1,16 @@
 import json
 import logging
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import hardware.servo_calibration as servo_calibration
 
 from hardware.pca9685_servo import ServoConfig
-from hardware.servo_calibration import (
-    ServoCalibration,
-    apply_calibration_to_config,
-    load_servo_calibration,
-)
+from hardware.servo_calibration import ServoCalibration, apply_calibration_to_config, load_servo_calibration
 
 
 def test_apply_calibration_to_config_overrides_angles_and_neutral() -> None:
@@ -71,3 +75,18 @@ def test_load_servo_calibration_ignores_invalid_entries(tmp_path, caplog) -> Non
     assert mapping == {}
     assert used_path is None
     assert "min_deg" in caplog.text
+
+
+def test_default_paths_include_module_directory(tmp_path, monkeypatch) -> None:
+    fake_module_path = tmp_path / "repo" / "pi-side" / "hardware" / "servo_calibration.py"
+    fake_module_path.parent.mkdir(parents=True)
+    fake_module_path.write_text("# dummy module", encoding="utf-8")
+
+    monkeypatch.setattr(servo_calibration, "__file__", str(fake_module_path))
+
+    paths = servo_calibration._default_calibration_paths()
+    expected = fake_module_path.parent / "servo-calibration.json"
+    alternate = fake_module_path.parent / "servo_calibration.json"
+
+    assert expected in paths or alternate in paths
+    

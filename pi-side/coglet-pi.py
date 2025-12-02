@@ -9,7 +9,6 @@ ENV (see /etc/default/coglet-pi):
   STT_URL, OLLAMA_URL, OLLAMA_MODEL, LLM_KEEP_ALIVE
   MIC_SR, MIC_DEVICE
   WAKEWORD_BACKEND, OWW_MODEL, OWW_THRESHOLD
-  VAD_AGGRESSIVENESS, VAD_MAX_SIL_MS, VAD_MIN_SPEECH_MS, MAX_UTTERANCE_S
   PIPER_VOICE, PIPER_VOICE_JSON
   PIPER_FIFO (/run/piper/in.jsonl)
   TTS_WPM (e.g., 185), TTS_PUNCT_PAUSE_MS (e.g., 180)
@@ -136,12 +135,13 @@ BARGE_IN         = _parse_bool(os.getenv("BARGE_IN"), True)
 TTS_MODE         = os.getenv("TTS_MODE", "mqtt")
 STT_URL          = os.getenv("STT_URL", "http://192.168.10.161:5005")
 OLLAMA_URL       = os.getenv("OLLAMA_URL", "http://192.168.10.161:11434")
-OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL", "coglet:latest")
+OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL", "wheatley")
 LLM_KEEP_ALIVE   = os.getenv("LLM_KEEP_ALIVE", "30m")
 MODEL_CONFIRM    = os.getenv("MODEL_CONFIRM", "Ja?")
-MODEL_READY      = os.getenv("MODEL_READY", "Alle subsystens ready. Awaiting the wakeword.")
-MODEL_BYEBYE     = os.getenv("MODEL_BYEBYE", "See ya!")
-OWW_MODEL        = os.getenv("OWW_MODEL", "/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/winston.onnx")
+MODEL_READY      = os.getenv("MODEL_READY", "Alle Subsysteme bereit. Ich erwarte das Wähkwört.")
+MODEL_BYEBYE     = os.getenv("MODEL_BYEBYE", "Tschüssen!")
+EOC_ACK          = os.getenv("EOC_ACK", "OK. Ich warte aufs neue Wähkwört.")
+OWW_MODEL        = os.getenv("OWW_MODEL", "/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/wheatley.onnx")
 OWW_THRESHOLD    = float(os.getenv("OWW_THRESHOLD", "0.35"))
 OWW_DEBUG        = int(os.getenv("OWW_DEBUG", "0"))
 MIC_DEVICE       = _parse_device_env(os.getenv("MIC_DEVICE"), "mic")
@@ -152,11 +152,8 @@ MIC_TARGET_DBFS   = float(os.getenv("MIC_TARGET_DBFS", "-18"))
 MIC_MAX_GAIN_DB   = float(os.getenv("MIC_MAX_GAIN_DB", "35"))
 WAKEWORD_BACKEND = os.getenv("WAKEWORD_BACKEND", "oww") 
 VAD_AGGR         = int(os.getenv("VAD_AGGRESSIVENESS", "2"))  
-VAD_MAX_SIL_MS   = int(os.getenv("VAD_MAX_SIL_MS", "800"))
-VAD_MIN_SPEECH_MS= int(os.getenv("VAD_MIN_SPEECH_MS", "300"))
-MAX_UTTERANCE_S  = int(os.getenv("MAX_UTTERANCE_S", "15"))
-PIPER_VOICE      = os.getenv("PIPER_VOICE", "/opt/piper/voices/en_US-ryan-high.onnx")
-PIPER_VOICE_JSON = os.getenv("PIPER_VOICE_JSON", "/opt/piper/voices/en_US-ryan-high.onnx.json")
+PIPER_VOICE      = os.getenv("PIPER_VOICE", "/opt/piper/voices/de_DE-thorsten-high.onnx")
+PIPER_VOICE_JSON = os.getenv("PIPER_VOICE_JSON", "/opt/piper/voices/de_DE-thorsten-high.onnx.json")
 PIPER_FIFO       = os.getenv("PIPER_FIFO", "/run/piper/in.jsonl")
 PIPER_MQTT_HOST  = os.getenv("PIPER_MQTT_HOST", "127.0.0.1")
 PIPER_MQTT_PORT  = int(os.getenv("PIPER_MQTT_PORT", "1883"))
@@ -2414,8 +2411,9 @@ def main():
 
                     if len(pcm_bytes) < int(0.2 * rec.sr) * 2:
                         logger.info("[pi] no follow-up detected; back to wakeword")
-                        say(MODEL_BYEBYE)
-                        logger.info("[piper] say %s", MODEL_BYEBYE)
+                        text = EOC_ACK or MODEL_BYEBYE  
+                        say(text)
+                        logger.info("[piper] say %s", text)
                         _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
                         break  # return to wakeword
 
@@ -2514,4 +2512,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

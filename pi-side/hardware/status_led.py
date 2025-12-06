@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import os
 from enum import Enum
-from rpi_ws281x import PixelStrip, Color
+from typing import Any
+
+import board
+import neopixel
 
 
 def _env_bool(name: str, default: bool = True) -> bool:
@@ -26,59 +29,65 @@ class CogletState(str, Enum):
 
 
 class StatusLED:
-    """
-    Control a single WS281x LED as a status indicator for Coglet.
+    """Drive a single NeoPixel (WS281x) as Coglet status indicator.
 
-    If ENABLE_LED in the environment is set to false/0/off, all calls are
-    silently ignored.
+    If ENABLE_LED in the environment is set to false/0/off, the LED stays
+    off and all calls become no-ops. The default pin is GPIO21 (board.D21),
+    matching the verified reference script provided by the user.
     """
 
     def __init__(
         self,
-        led_pin: int = 12,      # GPIO wired to the pixel shifter
-        led_count: int = 1,
-        brightness: int = 64,   # 0–255
-        led_freq_hz: int = 800000,
-        led_dma: int = 10,
-        led_invert: bool = False,
-        led_channel: int = 0,
-        enabled: bool | None = None,  # explicitly overridable
+        pixel_pin: Any = board.D21,
+        num_pixels: int = 1,
+        brightness: float | int = 0.3,
+        pixel_order: Any = neopixel.RGB,
+        auto_write: bool = False,
+        enabled: bool | None = None,
     ) -> None:
-        # Resolve ENV flag (default: True)
         if enabled is None:
             self._enabled = _env_bool("ENABLE_LED", default=True)
         else:
             self._enabled = enabled
 
         self._current_state: CogletState = CogletState.OFF
+        self._pixels: neopixel.NeoPixel | None = None
 
-        if self._enabled:
-            # Only initialize hardware when enabled
-            self._strip = PixelStrip(
-                led_count,
-                led_pin,
-                led_freq_hz,
-                led_dma,
-                led_invert,
-                brightness,
-                led_channel,
+        if not self._enabled:
+            return
+
+        normalized_brightness = self._normalize_brightness(brightness)
+        resolved_pin = self._resolve_pin(pixel_pin)
+
+        try:
+            self._pixels = neopixel.NeoPixel(
+                resolved_pin,
+                num_pixels,
+                brightness=normalized_brightness,
+                auto_write=auto_write,
+                pixel_order=pixel_order,
             )
-            self._strip.begin()
             self.off()
-        else:
-            # No strip when disabled
-            self._strip = None
+        except Exception:
+            # Disable LED on any init error to avoid crashes during startup
+            self._enabled = False
+            self._pixels = None
 
     # --- Set low-level color ---
 
     def _set_rgb(self, r: int, g: int, b: int) -> None:
         """Directly set RGB (0–255) for LED 0."""
-        if not self._enabled or self._strip is None:
-            # LED is disabled -> do nothing
+        if not self._enabled or self._pixels is None:
             return
 
-        self._strip.setPixelColor(0, Color(r, g, b))
-        self._strip.show()
+        clamped = (
+            max(0, min(255, int(r))),
+            max(0, min(255, int(g))),
+            max(0, min(255, int(b))),
+        )
+        self._pixels.fill(clamped)
+        if not self._pixels.auto_write:
+            self._pixels.show()
 
     # --- High-level states ---
 
@@ -117,3 +126,21 @@ class StatusLED:
     @property
     def current_state(self) -> CogletState:
         return self._current_state
+
+    # --- Helpers ---
+
+    @staticmethod
+    def _normalize_brightness(brightness: float | int) -> float:
+        """Allow both 0–1.0 floats and legacy 0–255 integers for brightness."""
+        if isinstance(brightness, int) and brightness > 1:
+            return max(0.0, min(brightness, 255)) / 255.0
+        return max(0.0, min(float(brightness), 1.0))
+
+    @staticmethod
+    def _resolve_pin(pixel_pin: Any) -> Any:
+        """Allow board pin objects or fallback int GPIO numbers."""
+        if isinstance(pixel_pin, int):
+            board_attr = f"D{pixel_pin}"
+            if hasattr(board, board_attr):
+                return getattr(board, board_attr)
+        return pixel_pin

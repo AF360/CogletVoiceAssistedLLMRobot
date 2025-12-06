@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+##!/usr/bin/env python3
 import time
 from status_led import StatusLED, CogletState
 from logging_setup import get_logger, setup_logging
@@ -8,7 +8,7 @@ logger = get_logger()
 
 
 def main() -> None:
-    led = StatusLED(led_pin=12, brightness=64)
+    led = StatusLED()
 
     try:
         while True:

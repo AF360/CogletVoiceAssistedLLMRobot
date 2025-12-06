@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import atexit
 import os
 from enum import Enum
 from typing import Any
@@ -68,6 +69,7 @@ class StatusLED:
                 pixel_order=pixel_order,
             )
             self.off()
+            atexit.register(self.off)
         except Exception:
             # Disable LED on any init error to avoid crashes during startup
             self._enabled = False
@@ -121,6 +123,7 @@ class StatusLED:
             self.off()
 
     def off(self) -> None:
+        self._current_state = CogletState.OFF
         self._set_rgb(0, 0, 0)
 
     @property

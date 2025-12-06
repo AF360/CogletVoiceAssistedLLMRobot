@@ -53,8 +53,10 @@ from startup_checks import (
 )
 
 _STATUS_LED_IMPORT_ERROR: Exception | None = None
-_status_led_available = importlib.util.find_spec("hardware.status_led") is not None and (
-    importlib.util.find_spec("rpi_ws281x") is not None
+_status_led_available = (
+    importlib.util.find_spec("hardware.status_led") is not None
+    and importlib.util.find_spec("neopixel") is not None
+    and importlib.util.find_spec("board") is not None
 )
 
 if _status_led_available:
@@ -70,7 +72,9 @@ else:  # pragma: no cover - optional hardware dependency
 
     StatusLED = None
     CogletState = _DummyCogletState
-    _STATUS_LED_IMPORT_ERROR = ImportError("Status LED dependencies unavailable")
+    _STATUS_LED_IMPORT_ERROR = ImportError(
+        "Status LED dependencies unavailable (requires neopixel + board)"
+    )
 
 from hardware.pca9685_servo import Servo, ServoConfig
 from hardware.servo_calibration import (
@@ -798,7 +802,7 @@ def _initialize_status_led() -> None:
     global _status_led
     if StatusLED is not None and CogletState is not None:
         try:
-            _status_led = StatusLED(led_pin=12, brightness=64)
+            _status_led = StatusLED()
             _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
         except Exception as exc:
             logger.warning("Status LED init failed: %s", exc)

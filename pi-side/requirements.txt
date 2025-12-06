@@ -10,9 +10,10 @@ pyserial>=3.5
 pyusb>=1.2.1
 adafruit-blinka>=8.50.0
 adafruit-circuitpython-pca9685>=3.4.11
-Adafruit-Blinka-Raspberry-Pi5-Neopixel
 adafruit-circuitpython-pixelbuf
+adafruit-circuitpython-neopixel>=6.3.12
 adafruit-circuitpython-led-animation
+Adafruit-Blinka-Raspberry-Pi5-Neopixel
 pytest>=8.2.0
 
 # Piper is external binary; not a Python dependency.

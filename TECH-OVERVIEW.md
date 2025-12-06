@@ -110,11 +110,12 @@ The user-facing `say` helper script publishes the same JSON payload to an MQTT t
 The RGB status LED is implemented in `pi-side/hardware/status_led.py`:
 
 - The `CogletState` enum defines LED-relevant states such as `AWAIT_FOLLOWUP`, `LISTENING`, `THINKING`, `SPEAKING` and
-  `OFF` (`pi-side/hardware/status_led.py`, lines 20–25).
-- `StatusLED` wraps a single WS281x LED using `rpi_ws281x.PixelStrip` and honours the `ENABLE_LED` environment variable;
-  when the LED is disabled, all calls are effectively no-ops (`pi-side/hardware/status_led.py`, lines 29–36 and 48–56).
+  `OFF` (`pi-side/hardware/status_led.py`, lines 22–28).
+- `StatusLED` drives a single NeoPixel via `neopixel.NeoPixel` on GPIO 21 by default and honours the `ENABLE_LED`
+  environment variable; when the LED is disabled, all calls are effectively no-ops (`pi-side/hardware/status_led.py`,
+  lines 31–75 and 78–90).
 - The mapping of Coglet states to colours is defined in `set_state()`, e.g. violet for `AWAIT_FOLLOWUP`, red for
-  `LISTENING`, blue for `THINKING`, and green for `SPEAKING` (`pi-side/hardware/status_led.py`, lines 101–110).
+  `LISTENING`, blue for `THINKING`, and green for `SPEAKING` (`pi-side/hardware/status_led.py`, lines 94–121).
 
 ### 3.6 Face tracking and servos
 

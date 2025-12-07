@@ -76,8 +76,8 @@ class FaceTrackingConfig:
     pitch_deadzone_px: float = 18.0
     eye_gain_deg_per_px: float = 0.08
     yaw_gain_deg_per_px: float = 0.05
-    # pitch gain vorher -0.06
-    pitch_gain_deg_per_px: float = 0.06
+    # pitch gain before -0.06
+    pitch_gain_deg_per_px: float = -0.06
     eye_max_delta_deg: float = 20.0
     yaw_max_delta_deg: float = 30.0
     pitch_max_delta_deg: float = 20.0

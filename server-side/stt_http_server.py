@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 # stt_http_server.py
 # Faster-Whisper + Flask: simple STT HTTP server for Coglet
-# Endpoints:
-#   GET  /healthz
-#   POST /stt        (multipart/form-data: audio=@file.wav [, lang=de] )
+# Optimized for In-Memory processing (no disk writes for audio upload)
 
 import os
 import re
 import time
-import tempfile
+import io
 import traceback
 from typing import Dict, Any
 
@@ -63,12 +61,17 @@ def _model_init_kwargs() -> Dict[str, Any]:
 # Initialize app and model
 # ----------------------------
 app = Flask(__name__)
-model = WhisperModel(MODEL, **_model_init_kwargs())
-
+# Load model once at startup
 if LOG_LEVEL in ("INFO", "DEBUG"):
     print(f"[stt] Starting with MODEL={MODEL} DEVICE={DEVICE} COMPUTE={COMPUTE} "
           f"PORT={PORT} VAD_MIN_SIL_MS={VAD_MIN_SIL_MS} BEAM_SIZE={BEAM_SIZE} "
           f"COND_PREV={COND_PREV} WORD_TS={WORD_TIMESTAMPS} DOWNLOAD_ROOT={DOWNLOAD_ROOT or '-'}")
+
+try:
+    model = WhisperModel(MODEL, **_model_init_kwargs())
+except Exception as e:
+    print(f"[stt] CRITICAL: Failed to load model: {e}")
+    raise e
 
 
 # ----------------------------
@@ -88,7 +91,7 @@ def healthz():
         "condition_on_previous_text": COND_PREV,
         "word_timestamps": WORD_TIMESTAMPS,
         "download_root": DOWNLOAD_ROOT or None,
-        "version": "1.2.0"
+        "version": "1.2.1-in-memory"
     })
 
 
@@ -101,24 +104,35 @@ def stt():
         lang = request.form.get("lang") or request.args.get("lang") or "de"
         f = request.files["audio"]
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-            f.save(tmp.name)
-            t0 = time.time()
+        t0 = time.time()
 
-            segments, info = model.transcribe(
-                tmp.name,
-                language=lang,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=VAD_MIN_SIL_MS),
-                beam_size=BEAM_SIZE,                      # greedy for low latency
-                word_timestamps=WORD_TIMESTAMPS,
-                initial_prompt=INITIAL_PROMPT or None,
-                condition_on_previous_text=COND_PREV
-            )
+        # --- In-Memory Processing Start ---
+        # Statt f.save(tmp) lesen wir direkt in einen BytesIO Buffer
+        audio_data = f.read()
+        if not audio_data:
+            return jsonify(error="Empty audio file"), 400
+            
+        audio_stream = io.BytesIO(audio_data)
+        # --- In-Memory Processing End ---
 
-            text = "".join(seg.text for seg in segments).strip()
-            text = _normalize_text(text)
-            dt_ms = int((time.time() - t0) * 1000)
+        # Whisper akzeptiert file-like objects (binary streams)
+        segments, info = model.transcribe(
+            audio_stream,
+            language=lang,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=VAD_MIN_SIL_MS),
+            beam_size=BEAM_SIZE,                      # greedy for low latency
+            word_timestamps=WORD_TIMESTAMPS,
+            initial_prompt=INITIAL_PROMPT or None,
+            condition_on_previous_text=COND_PREV
+        )
+
+        text = "".join(seg.text for seg in segments).strip()
+        text = _normalize_text(text)
+        dt_ms = int((time.time() - t0) * 1000)
+
+        if LOG_LEVEL == "DEBUG":
+            print(f"[stt] processed in {dt_ms}ms: {text[:50]}...")
 
         return jsonify(text=text, language=info.language, time_ms=dt_ms)
 
@@ -134,4 +148,3 @@ def stt():
 if __name__ == "__main__":
     # Flask dev server is fine for LAN; use gunicorn for multiple clients.
     app.run(host="0.0.0.0", port=PORT, threaded=True)
-

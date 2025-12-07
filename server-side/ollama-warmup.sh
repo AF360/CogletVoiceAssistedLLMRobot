@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This file goes to /use/local/bin/ollama-warmup.sh
+
 URL="http://192.168.10.161:11434/api/chat"
 PAYLOAD='{"model":"coglet:latest","keep_alive":"45m","messages":[{"role":"user","content":"Hi. who are you?"}],"stream":false}'
 

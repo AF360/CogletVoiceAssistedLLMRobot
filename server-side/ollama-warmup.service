@@ -6,10 +6,8 @@ Requires=ollama.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/curl --max-time 110 -sS -X POST http://127.0.0.1:11434/api/chat \
-  -d '{"model":"coglet","keep_alive":"45m","messages":[{"role":"user","content":"Hello"}],"stream":false}'
-TimeoutSec=120
+ExecStart=/usr/local/bin/ollama-warmup.sh
+TimeoutSec=260
 
 [Install]
 WantedBy=multi-user.target
-

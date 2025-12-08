@@ -61,7 +61,7 @@ class FaceDetectionBox:
 class GroveVisionAIClient:
     """Communicates with the Grove Vision AI v2 board via USB serial."""
 
-    _INVOCATION_COMMAND = b"AT+INVOKE=1,0,1\r"
+    _INVOCATION_COMMAND = b"AT+INVOKE=1,0,0\r"
 
     def __init__(
         self,

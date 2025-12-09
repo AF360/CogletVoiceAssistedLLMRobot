@@ -9,6 +9,7 @@
 - `piper_mqtt_tts.service` — systemd service definition for the MQTT-based Piper TTS bridge
 - `say` — Script that sends text to the Piper TTS MQTT bridge; copy to `/usr/local/bin/say`
 - `say-cancel` — Script that cancels speech output via MQTT; copy to `/usr/local/bin/say-cancel`
+- `Coglet.onnx` OpenWakeWord model for the wakeword "Coglet" (Important note: The model has been trained with data of a mixture of different licenses and usage restrictions. As such, any custom models trained with this data (like this model) should be considered as appropriate for non-commercial personal use only.
 - `requirements.txt` — Python dependencies
 - `README.md` — This file
 - `hardware` subdirectory — Hardware-related code (PCA9685, ReSpeaker Lite, Grove Vision AI v2, WS281x RGB LED)

@@ -117,6 +117,7 @@ Controls during calibration:
 | `+` / `-` | Increase / decrease step size in 1° increments (1–10°) |
 | `u` / `d` | Increase / decrease current angle by the selected step |
 | `U` / `D` | Store current angle as max / min |
+| `A` / `Z` | Store current angle as start-position (A) / as stop-position (Z) |
 | `x` | Reset the current channel to its factory defaults |
 | `n` / `p` | Jump to next / previous servo channel |
 | `Q` | Save calibration and quit |

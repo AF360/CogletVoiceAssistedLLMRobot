@@ -505,7 +505,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("servo_calibration.json"),
+        default=Path("servo-calibration.json"),  # <-- HIER GEÄNDERT auf Bindestrich!
         help="File with servo calibration data",
     )
     return parser
@@ -553,3 +553,4 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover - CLI-Einstiegspunkt
     raise SystemExit(main())
+    

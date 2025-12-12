@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
-Coglet Pi side:
+Coglet Pi side (v0.3.6):
 - Wakeword (openwakeword) -> recording (sounddevice + webrtcvad) -> /stt on PC
 - /api/chat (Ollama, stream=true) -> sentence buffering -> Piper TTS (FIFO to warm server) -> aplay
 - Half-duplex: mic is muted during TTS (blocked for estimated speech duration).
+- Deep Sleep: Enters low power/servo mode after inactivity (no voice interaction).
+- NEW: ReSpeaker Hardware VAD & DOA Integration (xvf_mic).
+- RESTORED: Follow-Up Logic.
+- FIXED: Barge-In self-interruption (flush).
 
 ENV (see /etc/default/coglet-pi):
   STT_URL, OLLAMA_URL, OLLAMA_MODEL, LLM_KEEP_ALIVE
@@ -13,6 +17,8 @@ ENV (see /etc/default/coglet-pi):
   PIPER_FIFO (/run/piper/in.jsonl)
   TTS_WPM (e.g., 185), TTS_PUNCT_PAUSE_MS (e.g., 180)
 """
+
+__version__ = "0.3.6"
 
 import os
 import sys
@@ -37,14 +43,13 @@ import requests
 import uuid
 import sounddevice as sd
 import paho.mqtt.client as mqtt
-import webrtcvad
 import errno
 import stat
 from math import gcd
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set
 from scipy.signal import resample_poly
-from openwakeword import Model as _OWWModel
+
 from startup_checks import (
     StartupCheckError,
     check_ollama_model,
@@ -52,6 +57,39 @@ from startup_checks import (
     check_stt_health,
 )
 
+# --- Hardware / Audio Imports ---
+from hardware.pca9685_servo import Servo, ServoConfig
+from hardware.servo_calibration import (
+    ServoCalibration,
+    load_servo_calibration,
+    merge_config_with_calibration,
+)
+from hardware.channel_config import parse_channel_list, resolve_channel_list
+from hardware.servo_presets import (
+    POSE_CALIBRATE,
+    POSE_REST,
+    SERVO_LAYOUT_V1,
+    PERSONALITY_SERVO_NAMES,
+    apply_pose,
+)
+from hardware.eyelid_controller import EyelidController
+from hardware.audio import Recorder, SpeechEndpoint, Wakeword, set_global_listen_state
+
+# NEW: Hardware Microphone Class
+try:
+    from hardware.xvf_mic import ReSpeakerMic
+    _XVF_MIC_AVAILABLE = True
+except ImportError:
+    _XVF_MIC_AVAILABLE = False
+
+
+# --- Logging Setup ---
+from logging_setup import get_logger, setup_logging
+
+setup_logging()
+logger = get_logger()
+
+# --- Optional Status LED ---
 _STATUS_LED_IMPORT_ERROR: Exception | None = None
 _status_led_available = (
     importlib.util.find_spec("hardware.status_led") is not None
@@ -61,7 +99,7 @@ _status_led_available = (
 
 if _status_led_available:
     from hardware.status_led import StatusLED, CogletState
-else:  # pragma: no cover - optional hardware dependency
+else:
     class _DummyCogletState:
         AWAIT_WAKEWORD = "await_wakeword"
         AWAIT_FOLLOWUP = "await_followup"
@@ -76,26 +114,6 @@ else:  # pragma: no cover - optional hardware dependency
         "Status LED dependencies unavailable (requires neopixel + board)"
     )
 
-from hardware.pca9685_servo import Servo, ServoConfig
-from hardware.servo_calibration import (
-    ServoCalibration,
-    apply_calibration_to_config,
-    load_servo_calibration,
-)
-from hardware.channel_config import parse_channel_list, resolve_channel_list
-from hardware.servo_presets import (
-    POSE_CALIBRATE,
-    POSE_REST,
-    SERVO_LAYOUT_V1,
-    PERSONALITY_SERVO_NAMES,
-    apply_pose,
-)
-from hardware.eyelid_controller import EyelidController
-from logging_setup import get_logger, setup_logging
-
-setup_logging()
-logger = get_logger()
-
 
 @dataclass(frozen=True)
 class ServoInitBundle:
@@ -109,23 +127,6 @@ class ServoInitBundle:
     tracking_pitch_name: str | None
 
 # -------------------- Konfig per ENV --------------------
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
-os.environ.setdefault("ORT_LOG_SEVERITY_LEVEL", "3")
-
-def _parse_device_env(v, default):
-    if v is None:
-        return default
-    v = v.strip()
-    if v == "":
-        return default
-    try:
-        # numerischer Index erlaubt
-        return int(v)
-    except ValueError:
-        # auch Namen wie "mic" / "mic_ch0" erlauben
-        return v
-
-
 def _parse_bool(value: Optional[str], default: bool) -> bool:
     if value is None:
         return default
@@ -139,23 +140,19 @@ BARGE_IN         = _parse_bool(os.getenv("BARGE_IN"), True)
 TTS_MODE         = os.getenv("TTS_MODE", "mqtt")
 STT_URL          = os.getenv("STT_URL", "http://192.168.10.161:5005")
 OLLAMA_URL       = os.getenv("OLLAMA_URL", "http://192.168.10.161:11434")
-OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL", "wheatley")
+OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL", "coglet:latest")
 LLM_KEEP_ALIVE   = os.getenv("LLM_KEEP_ALIVE", "30m")
 MODEL_CONFIRM    = os.getenv("MODEL_CONFIRM", "Ja?")
-MODEL_READY      = os.getenv("MODEL_READY", "Alle Subsysteme bereit. Ich erwarte das Wähkwört.")
+MODEL_READY      = os.getenv("MODEL_READY", "Alle Subsysteme bereit. Ich erwarte das Wähkwörd.")
 MODEL_BYEBYE     = os.getenv("MODEL_BYEBYE", "Tschüssen!")
-EOC_ACK          = os.getenv("EOC_ACK", "OK. Ich warte aufs neue Wähkwört.")
-OWW_MODEL        = os.getenv("OWW_MODEL", "/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/wheatley.onnx")
+EOC_ACK          = os.getenv("EOC_ACK", "OK. Ich warte aufs neue Wähkwörd.")
+OWW_MODEL        = os.getenv("OWW_MODEL", "/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/scarlett.onnx")
 OWW_THRESHOLD    = float(os.getenv("OWW_THRESHOLD", "0.35"))
 OWW_DEBUG        = int(os.getenv("OWW_DEBUG", "0"))
-MIC_DEVICE       = _parse_device_env(os.getenv("MIC_DEVICE"), "mic")
 MIC_SR           = int(os.getenv("MIC_SR", "16000"))
-MIC_GAIN_DB       = float(os.getenv("MIC_GAIN_DB", "0"))
-MIC_AUTO_GAIN     = os.getenv("MIC_AUTO_GAIN", "0") == "1"   
-MIC_TARGET_DBFS   = float(os.getenv("MIC_TARGET_DBFS", "-18"))
-MIC_MAX_GAIN_DB   = float(os.getenv("MIC_MAX_GAIN_DB", "35"))
-WAKEWORD_BACKEND = os.getenv("WAKEWORD_BACKEND", "oww") 
-VAD_AGGR         = int(os.getenv("VAD_AGGRESSIVENESS", "2"))  
+VAD_AGGR         = int(os.getenv("VAD_AGGRESSIVENESS", "2"))
+WAKEWORD_BACKEND = os.getenv("WAKEWORD_BACKEND", "oww")
+
 PIPER_VOICE      = os.getenv("PIPER_VOICE", "/opt/piper/voices/de_DE-thorsten-high.onnx")
 PIPER_VOICE_JSON = os.getenv("PIPER_VOICE_JSON", "/opt/piper/voices/de_DE-thorsten-high.onnx.json")
 PIPER_FIFO       = os.getenv("PIPER_FIFO", "/run/piper/in.jsonl")
@@ -194,6 +191,7 @@ TTS_PUNCT_MS     = int(os.getenv("TTS_PUNCT_PAUSE_MS", "180"))
 SENTENCE_RE      = re.compile(r'[.!?…]\s($|\S)')  
 
 FACE_TRACKING_ENABLED = _parse_bool(os.getenv("FACE_TRACKING_ENABLED"), True)
+DEEP_SLEEP_TIMEOUT_S = 240.0  # 4 minutes timeout for Deep Sleep
 
 def _parse_float_env(name: str, default: float, *, logger: logging.Logger) -> float:
     value = os.getenv(name)
@@ -337,13 +335,11 @@ def _create_eyelid_controller(servos: Mapping[str, Servo], *, logger: logging.Lo
 
 
 def _initialize_all_servos(logger: logging.Logger) -> ServoInitBundle | None:
-    """Initialise all PCA9685 servos, eyelids, and animation bindings."""
-
     try:
         import board
         import busio
         from adafruit_pca9685 import PCA9685
-    except Exception as exc:  # pragma: no cover - optional hardware dependency
+    except Exception as exc: 
         logger.error("Servo init failed: PCA9685 dependencies missing: %s", exc)
         return None
 
@@ -461,12 +457,6 @@ def _initialize_all_servos(logger: logging.Logger) -> ServoInitBundle | None:
         logger.error("Servo init failed: PCA9685 init failed: %s", exc)
         return None
 
-    def _effective_base_config(idx: int, base: ServoConfig) -> ServoConfig:
-        calibration = calibration_map.get(idx)
-        if calibration is None:
-            return base
-        return apply_calibration_to_config(base, calibration)
-
     servo_map: Dict[str, Servo] = {}
     start_angles: Dict[str, float] = {}
 
@@ -490,8 +480,9 @@ def _initialize_all_servos(logger: logging.Logger) -> ServoInitBundle | None:
             return None
         prefix = prefix_map.get(name, f"ANIM_{name}")
         try:
-            calibrated_base = _effective_base_config(idx, definition.config)
-            config = _create_servo_config(prefix, calibrated_base, pwm_freq, logger=logger)
+            env_config = _create_servo_config(prefix, definition.config, pwm_freq, logger=logger)
+            calibration = calibration_map.get(idx)
+            config = merge_config_with_calibration(env_config, calibration)
             servo = Servo(pca.channels[idx], config=config)
         except Exception as exc:
             logger.error("Servo init failed for %s on channel %d: %s", name, idx, exc)
@@ -630,13 +621,11 @@ _shutdown_targets_lock = threading.Lock()
 _shutdown_servos_by_channel: Dict[int, Servo] = {}
 _shutdown_calibration: Dict[int, ServoCalibration] = {}
 
+# Idle Animation Globals
+_idle_thread: threading.Thread | None = None
+_idle_stop_event = threading.Event()
+
 def _register_anim_servos(servos: Mapping[str, Servo]) -> None:
-    """Store servo instances for personality/animation servos.
-
-    Tracking servos (eyes, NPT, wheels) are excluded. LID is controlled solely by
-    the EyelidController.
-    """
-
     global _anim_servos
     with _anim_lock:
         _anim_servos = {
@@ -645,22 +634,18 @@ def _register_anim_servos(servos: Mapping[str, Servo]) -> None:
             if name in PERSONALITY_SERVO_NAMES
         }
 
-
 def _get_anim_servo(name: str) -> Servo | None:
     with _anim_lock:
         return _anim_servos.get(name)
-
 
 def _get_eyelids() -> EyelidController | None:
     with _anim_lock:
         return _eyelid_controller
 
-
 def _set_eyelids(controller: EyelidController | None) -> None:
     global _eyelid_controller
     with _anim_lock:
         _eyelid_controller = controller
-
 
 def _register_shutdown_targets(
     servos: Mapping[str, Servo],
@@ -677,7 +662,6 @@ def _register_shutdown_targets(
         _shutdown_calibration.clear()
         _shutdown_calibration.update(calibration)
 
-
 def _shutdown_eyelids() -> None:
     controller = _get_eyelids()
     _set_eyelids(None)
@@ -686,7 +670,6 @@ def _shutdown_eyelids() -> None:
             controller.shutdown()
         except Exception as exc:
             logger.debug("Eyelid controller shutdown failed: %s", exc)
-
 
 def _eyelids_set_mode(mode: str) -> None:
     controller = _get_eyelids()
@@ -697,7 +680,6 @@ def _eyelids_set_mode(mode: str) -> None:
     except Exception as exc:
         logger.debug("Setting eyelid mode failed: %s", exc)
 
-
 def _eyelids_set_override(angle: float, *, duration_s: float) -> None:
     controller = _get_eyelids()
     if controller is None:
@@ -706,7 +688,6 @@ def _eyelids_set_override(angle: float, *, duration_s: float) -> None:
         controller.set_override(angle, duration_s=duration_s)
     except Exception as exc:
         logger.debug("Setting eyelid override failed: %s", exc)
-
 
 def _eyelids_override_fraction(fraction: float, *, duration_s: float) -> None:
     controller = _get_eyelids()
@@ -719,7 +700,6 @@ def _eyelids_override_fraction(fraction: float, *, duration_s: float) -> None:
         return
     _eyelids_set_override(target, duration_s=duration_s)
 
-
 def _apply_pose_safe(pose: str | Mapping[str, float]) -> None:
     with _anim_lock:
         target_servos = dict(_anim_servos)
@@ -729,7 +709,6 @@ def _apply_pose_safe(pose: str | Mapping[str, float]) -> None:
         apply_pose(target_servos, pose)
     except Exception as exc:
         logger.debug("Applying pose failed: %s", exc)
-
 
 def _move_servos_to_stop_positions() -> None:
     with _shutdown_targets_lock:
@@ -758,20 +737,11 @@ def _move_servos_to_stop_positions() -> None:
             logger.debug("Parking servo channel %d failed: %s", channel, exc)
     logger.info("Servos parked, exiting Coglet.")
 
-
 def _restore_neutral_pose_and_close_lid() -> None:
-    """Park servos in their calibrated stop pose and close the eyelid."""
-
     try:
         _move_servos_to_stop_positions()
     except Exception as exc:
         logger.debug("Servo parking during shutdown failed: %s", exc)
-
-    try:
-        _eyelids_set_mode("closed")
-    except Exception as exc:
-        logger.debug("Closing eyelid failed: %s", exc)
-
 
 def _cleanup_servo_hardware(servo_setup: ServoInitBundle | None) -> None:
     if servo_setup is None:
@@ -785,9 +755,7 @@ def _cleanup_servo_hardware(servo_setup: ServoInitBundle | None) -> None:
     except Exception as exc:
         logger.debug("PCA9685 cleanup failed: %s", exc)
 
-
 def _led_set_state_safe(state) -> None:
-    """Update LED status if hardware is available; ignore all errors."""
     if _status_led is None or CogletState is None:
         return
     try:
@@ -795,10 +763,7 @@ def _led_set_state_safe(state) -> None:
     except Exception as exc:
         logger.debug("Status LED update failed: %s", exc)
 
-
 def _initialize_status_led() -> None:
-    """Initialize the optional status LED hardware."""
-
     global _status_led
     if StatusLED is not None and CogletState is not None:
         try:
@@ -809,7 +774,6 @@ def _initialize_status_led() -> None:
             _status_led = None
     elif _STATUS_LED_IMPORT_ERROR is not None:
         logger.info("Status LED unavailable (import failed): %s", _STATUS_LED_IMPORT_ERROR)
-
 
 def _graceful_shutdown(signum=None, frame=None) -> None:
     if _shutdown_event.is_set():
@@ -824,7 +788,6 @@ def _graceful_shutdown(signum=None, frame=None) -> None:
     except Exception as exc:
         logger.debug("Status LED shutdown failed: %s", exc)
     raise KeyboardInterrupt
-
 
 def _mouth_loop(open_angle: float, close_angle: float, rest_angle: float) -> None:
     servo = _get_anim_servo("MOU")
@@ -855,7 +818,6 @@ def _mouth_loop(open_angle: float, close_angle: float, rest_angle: float) -> Non
     for _ in range(3):
         servo.update(0.05)
 
-
 def _start_mouth_animation() -> None:
     global _mouth_thread
     servo = _get_anim_servo("MOU")
@@ -876,7 +838,6 @@ def _start_mouth_animation() -> None:
         )
         _mouth_thread.start()
 
-
 def _stop_mouth_animation() -> None:
     global _mouth_thread
     with _anim_lock:
@@ -888,7 +849,6 @@ def _stop_mouth_animation() -> None:
     servo = _get_anim_servo("MOU")
     if servo is not None:
         servo.move_to(servo.config.neutral_deg)
-
 
 def _start_thinking_animation() -> None:
     global _thinking_thread
@@ -904,7 +864,6 @@ def _start_thinking_animation() -> None:
         )
         _thinking_thread.start()
 
-
 def _stop_thinking_animation() -> None:
     global _thinking_thread
     with _anim_lock:
@@ -913,7 +872,6 @@ def _stop_thinking_animation() -> None:
         _thinking_stop_event.set()
     if thread is not None:
         thread.join(timeout=1.0)
-
 
 def _thinking_loop(stop_event: threading.Event) -> None:
     head = _get_anim_servo("NRL")
@@ -930,23 +888,23 @@ def _thinking_loop(stop_event: threading.Event) -> None:
     head_right = _clamp_servo_angle(head, head_neutral - 20.0) if head is not None else None
 
     left_forward = (
-        _clamp_servo_angle(left_ear, left_ear.config.neutral_deg + 12.0)
+        _clamp_servo_angle(left_ear, left_ear.config.neutral_deg + 25.0)
         if left_ear is not None
         else None
     )
     left_back = (
-        _clamp_servo_angle(left_ear, left_ear.config.neutral_deg - 12.0)
+        _clamp_servo_angle(left_ear, left_ear.config.neutral_deg - 25.0)
         if left_ear is not None
         else None
     )
 
     right_forward = (
-        _clamp_servo_angle(right_ear, right_ear.config.neutral_deg + 12.0)
+        _clamp_servo_angle(right_ear, right_ear.config.neutral_deg + 25.0)
         if right_ear is not None
         else None
     )
     right_back = (
-        _clamp_servo_angle(right_ear, right_ear.config.neutral_deg - 12.0)
+        _clamp_servo_angle(right_ear, right_ear.config.neutral_deg - 25.0)
         if right_ear is not None
         else None
     )
@@ -968,6 +926,54 @@ def _thinking_loop(stop_event: threading.Event) -> None:
         _drive_anim_targets(targets, 0.7, stop_event)
         toggle = not toggle
 
+# Idle Animation Loop
+def _idle_loop(stop_event: threading.Event) -> None:
+    stop_event.wait(random.uniform(2.0, 5.0))
+    while not stop_event.is_set():
+        if stop_event.wait(random.uniform(5.0, 10.0)):
+            break
+        actions = []
+        if _get_anim_servo("EAL"): actions.append("EAL")
+        if _get_anim_servo("EAR"): actions.append("EAR")
+        if _get_anim_servo("NRL"): actions.append("NRL")
+        
+        if not actions:
+            stop_event.wait(5.0)
+            continue
+            
+        servo_name = random.choice(actions)
+        servo = _get_anim_servo(servo_name)
+        if servo:
+            neutral = servo.config.neutral_deg
+            offset = random.choice([-12.0, 12.0])
+            target = _clamp_servo_angle(servo, neutral + offset)
+            servo.move_to(target)
+            time.sleep(0.3)
+            servo.move_to(neutral)
+
+def _start_idle_animation() -> None:
+    global _idle_thread
+    with _anim_lock:
+        if _idle_thread and _idle_thread.is_alive():
+            return
+        _idle_stop_event.clear()
+        _idle_thread = threading.Thread(
+            target=_idle_loop,
+            args=(_idle_stop_event,),
+            name="IdleAnimation",
+            daemon=True,
+        )
+        _idle_thread.start()
+
+def _stop_idle_animation() -> None:
+    global _idle_thread
+    with _anim_lock:
+        thread = _idle_thread
+        _idle_thread = None
+        _idle_stop_event.set()
+    if thread is not None:
+        thread.join(timeout=1.0)
+    _apply_pose_safe(_personality_neutral_targets())
 
 def anim_listen_start():
     logger.info("[anim] listen_start")
@@ -976,12 +982,10 @@ def anim_listen_start():
     _eyelids_override_fraction(0.0, duration_s=2.0)
     _led_set_state_safe(CogletState.LISTENING)
 
-
 def anim_listen_stop():
     logger.info("[anim] listen_stop")
     _eyelids_set_mode("auto")
     _apply_pose_safe(_personality_neutral_targets())
-
 
 def anim_think_start():
     logger.info("[anim] think_start")
@@ -989,33 +993,28 @@ def anim_think_start():
     _start_thinking_animation()
     _led_set_state_safe(CogletState.THINKING)
 
-
 def anim_think_stop():
     logger.info("[anim] think_stop")
     _stop_thinking_animation()
     _eyelids_set_mode("auto")
-    _apply_pose_safe(_personality_neutral_targets())
-
 
 def anim_talk_start():
     logger.info("[anim] talk_start")
+    # WICHTIG: Erst Denken stoppen, dann Sprechen starten
+    _stop_thinking_animation() 
     _eyelids_set_mode("auto")
     _start_mouth_animation()
     _led_set_state_safe(CogletState.SPEAKING)
-
 
 def anim_talk_stop():
     logger.info("[anim] talk_stop")
     _eyelids_set_mode("auto")
     _stop_mouth_animation()
 
-
 def anim_error(msg=""):
     logger.error("[anim] error %s", msg)
     _eyelids_set_mode("closed")
 
-# -------------------- Global state --------------------
-_listen = True         # mic on/off
 _tts_active = False
 _status_led: Any = None
 sd.default.samplerate = MIC_SR
@@ -1026,22 +1025,15 @@ def _normalize_command_text(text: str) -> str:
     normalized = re.sub(r"\s+", " ", normalized)
     return normalized.strip()
 
-
 def _is_program_exit_command(text: str) -> bool:
     normalized = _normalize_command_text(text)
     if not normalized:
         return False
-
     collapsed = normalized.replace(" ", "")
-    exits = {
-        "programm ende",
-        "programmende",
-        "programm-ende",
-    }
+    exits = {"programm ende", "programmende", "programm-ende"}
     return normalized in exits or collapsed in exits
 
 def _fifo_write_nonblock(path: str, line: str) -> bool:
-    """Try to open FIFO non-blocking and write; return False if no reader."""
     try:
         st = os.stat(path)
         if not stat.S_ISFIFO(st.st_mode):
@@ -1067,8 +1059,6 @@ def _fifo_write_nonblock(path: str, line: str) -> bool:
         try: os.close(fd)
         except Exception: pass
 
-
-
 # -------------------- Piper MQTT helpers --------------------
 _mqtt_client = None
 _mqtt_connected = False
@@ -1079,17 +1069,13 @@ _tts_manual_started: Set[str] = set()
 _tts_anim_started: Set[str] = set()
 _last_tts_id: str = ""
 
-
 def _ensure_talk_anim_started(tts_id: str) -> None:
-    """Trigger talk_start once per TTS id to keep start/stop ordering stable."""
     if tts_id in _tts_anim_started:
         return
     _tts_anim_started.add(tts_id)
     anim_talk_start()
 
-
 def _clear_tts_tracking(tts_id: str) -> None:
-    """Clean up bookkeeping for a finished/cancelled/error TTS request."""
     _tts_manual_started.discard(tts_id)
     _tts_anim_started.discard(tts_id)
     _tts_estimates.pop(tts_id, None)
@@ -1105,7 +1091,6 @@ def _mqtt_on_connect(client, userdata, flags, rc, properties=None):
         except Exception as e:
             logger.error("[mqtt] subscribe error: %s", e)
 
-
 def _handle_tts_state(tts_id: str, state: str, payload: Dict[str, Any]) -> None:
     prev = _tts_states.get(tts_id)
     if prev == state:
@@ -1115,15 +1100,14 @@ def _handle_tts_state(tts_id: str, state: str, payload: Dict[str, Any]) -> None:
     if state == "START":
         if tts_id in _tts_manual_started:
             _tts_manual_started.discard(tts_id)
-        _ensure_talk_anim_started(tts_id)
     elif state == "SPEAKING":
         if prev not in ("START", "SPEAKING"):
             if tts_id in _tts_manual_started:
                 _tts_manual_started.discard(tts_id)
             _ensure_talk_anim_started(tts_id)
     elif state in ("DONE", "CANCELLED"):
-        _ensure_talk_anim_started(tts_id)
-        anim_talk_stop()
+        if tts_id in _tts_anim_started:
+            anim_talk_stop()
         _clear_tts_tracking(tts_id)
     elif state == "ERROR":
         reason = payload.get("reason") if isinstance(payload.get("reason"), str) else ""
@@ -1159,6 +1143,8 @@ def _mqtt_connect():
             "client_id": f"coglet-pi-{uuid.uuid4().hex[:8]}",
             "protocol": PIPER_MQTT_PROTOCOL,
         }
+        if hasattr(mqtt, "CallbackAPIVersion"):
+            client_kwargs["callback_api_version"] = mqtt.CallbackAPIVersion.VERSION2
         supports_clean_start = _mqtt_client_supports("clean_start")
         supports_clean_session = _mqtt_client_supports("clean_session")
         clean_start_flag = getattr(mqtt, "MQTT_CLEAN_START_FIRST_ONLY", 1)
@@ -1244,26 +1230,23 @@ def _wait_for_tts_done(tts_id: str, fallback_seconds: float = 0.0, hard_timeout:
             time.sleep(fallback_seconds)
     _tts_events.pop(tts_id, None)
 
-# -------------------- Utilities --------------------
 @contextmanager
 def half_duplex_tts():
-    global _listen, _tts_active
+    global _tts_active
     _tts_active = True
     try:
         if BARGE_IN:
-            # Full-Duplex: Mic bleibt an
             yield
         else:
-            _listen = False
+            set_global_listen_state(False)
             try:
                 yield
             finally:
-                _listen = True
+                set_global_listen_state(True)
     finally:
         _tts_active = False
 
 def _voice_sample_rate() -> int:
-    """Liest die sample_rate aus der Piper-Voice-JSON; fallback 22050."""
     try:
         with open(PIPER_VOICE_JSON, "r", encoding="utf-8") as f:
             cfg = json.load(f)
@@ -1272,47 +1255,79 @@ def _voice_sample_rate() -> int:
         return 22050
 
 def estimate_tts_seconds(text: str) -> float:
-    """Rough speech duration: WPM plus small extra pauses per punctuation mark."""
-    # Count words (simple/robust):
     words = max(1, len(re.findall(r'\b\w+\b', text, flags=re.UNICODE)))
     base = words * (60.0 / max(60, TTS_WPM))
     pauses = text.count('.') + text.count('!') + text.count('?') + text.count('…')
     commas = text.count(',') + text.count(';') + text.count(':')
     extra = pauses * (TTS_PUNCT_MS/1000.0) + commas * (TTS_PUNCT_MS/2000.0)
-    return base + extra + 0.2  # small safety margin
+    return base + extra + 0.2
 
-def say(text: str):
-    """Send text to TTS. Prefer MQTT, fallback to FIFO, else oneshot pipeline."""
+def say(text: str, recorder: Optional[Recorder] = None, wakeword: Optional[Wakeword] = None):
     if not text or not text.strip():
         return
-
     payload = {"text": text}
     line = json.dumps(payload, ensure_ascii=False) + "\n"
 
     with half_duplex_tts():
-        # 1) MQTT preferred
         used = False
         if (TTS_MODE.lower() == "mqtt" or PIPER_MQTT_HOST) and (mqtt is not None):
             est = max(0.6, estimate_tts_seconds(text))
             tts_id = _piper_mqtt_publish(text, estimate_hint=est)
+            
             if tts_id:
                 used = True
-                # Warten auf Status-Start, ansonsten Fallback-Animation triggern
-                deadline = time.time() + 0.6
+                
+                # A. WARTEN AUF AUDIO-START (Generation dauert!)
+                # Wir geben ihm bis zu 5 Sekunden Zeit zum Rechnen (für Thorsten High)
+                # Das ist kein "Sleep", sondern ein Timeout für die Schleife.
+                deadline = time.time() + 5.0 
+                
                 while time.time() < deadline:
                     state = _tts_states.get(tts_id)
-                    if state in {"START", "SPEAKING", "DONE", "CANCELLED", "ERROR"}:
+                    # HIER IST DER FIX: Wir ignorieren "START".
+                    # Wir brechen erst aus, wenn er wirklich spricht ("SPEAKING") 
+                    # oder wenn es vorbei/kaputt ist.
+                    if state in {"SPEAKING", "DONE", "CANCELLED", "ERROR"}:
                         break
                     time.sleep(0.05)
-                else:
-                    _ensure_talk_anim_started(tts_id)
-                    _tts_manual_started.add(tts_id)
+                
+                # B. JETZT MUND BEWEGEN
+                # Entweder weil "SPEAKING" kam, oder weil Timeout abgelaufen ist (Fallback)
+                _ensure_talk_anim_started(tts_id)
+                _tts_manual_started.add(tts_id)
 
-                _wait_for_tts_done(
-                    tts_id,
-                    fallback_seconds=est,
-                    hard_timeout=max(6.0, est * 2 + 2.0),
-                )
+                # C. BARGE-IN SCHLEIFE (Während er spricht)
+                if BARGE_IN and recorder and wakeword:
+                    # Puffer und Engine leeren gegen Selbst-Unterbrechung
+                    _flush_input_buffers(recorder)
+                    if hasattr(wakeword, "reset"):
+                        wakeword.reset()
+                    
+                    # Wie lange warten wir maximal aufs Ende des Sprechens?
+                    start_wait = time.time()
+                    timeout_sec = max(6.0, est * 2 + 2.0)
+                    
+                    while time.time() < start_wait + timeout_sec:
+                        ev = _tts_events.get(tts_id)
+                        # Wenn fertig (DONE/CANCELLED/ERROR) -> Raus
+                        if ev and ev.is_set():
+                            break
+                        
+                        # Barge-In Check
+                        if wakeword.check_once(recorder):
+                            logger.info("[barge-in] WAKEWORD DETECTED! Cancelling TTS...")
+                            payload_cancel = json.dumps({"id": tts_id, "text": "STOP"}, ensure_ascii=False)
+                            if _mqtt_client:
+                                _mqtt_client.publish(TOPIC_CANCEL, payload_cancel, qos=1)
+                            anim_talk_stop()
+                            break
+                        time.sleep(0.02)
+                    
+                    _tts_events.pop(tts_id, None)
+                else:
+                    # Fallback ohne Barge-In: Einfach warten bis fertig
+                    _wait_for_tts_done(tts_id, fallback_seconds=est, hard_timeout=max(6.0, est * 2 + 2.0))
+                
                 time.sleep(0.1)
                 if _tts_states.get(tts_id) not in {"DONE", "CANCELLED", "ERROR"}:
                     anim_talk_stop()
@@ -1321,7 +1336,7 @@ def say(text: str):
         if used:
             return
 
-        # 2) FIFO (non-blocking open)
+        # Fallback (FIFO / Shell)
         anim_talk_start()
         if _fifo_write_nonblock(PIPER_FIFO, line):
             if not BARGE_IN:
@@ -1330,7 +1345,7 @@ def say(text: str):
             return
         anim_talk_stop()
 
-        # 3) One-shot fallback (slow; loads model each time)
+        # Fallback (One-Shot)
         try:
             rate = str(_voice_sample_rate())
             cmd_piper = ["/opt/piper/piper", "--model", PIPER_VOICE, "--config", PIPER_VOICE_JSON,
@@ -1347,13 +1362,10 @@ def say(text: str):
             p2.wait(timeout=120)
             p1.wait(timeout=120)
         finally:
-            try:
-                anim_talk_stop()
-            except Exception:
-                pass
+            try: anim_talk_stop()
+            except Exception: pass
 
 def chat_stream(prompt: str):
-    """Ollama Streaming-Generator: liefert Text-Inkremente"""
     url = f"{OLLAMA_URL}/api/chat"
     payload = {
         "model": OLLAMA_MODEL,
@@ -1370,536 +1382,42 @@ def chat_stream(prompt: str):
     with requests.post(url, json=payload, stream=True, timeout=300) as r:
         r.raise_for_status()
         for line in r.iter_lines(decode_unicode=True):
-            if not line:
-                continue
-            try:
-                j = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if j.get("done"):
-                break
-            msg = j.get("message", {})
-            chunk = msg.get("content", "")
-            if chunk:
-                yield chunk
+            if not line: continue
+            try: j = json.loads(line)
+            except json.JSONDecodeError: continue
+            if j.get("done"): break
+            chunk = j.get("message", {}).get("content", "")
+            if chunk: yield chunk
 
-# --- Speech endpointing (WebRTC-VAD, robust start + end-guard) ---
-class SpeechEndpoint:
-    def __init__(self, sr: int, vad_aggr: int = 2):
-        self.sr = int(sr)
-        self.vad = webrtcvad.Vad(int(vad_aggr))
-
-        # Tuning (override via ENV)
-        self.frame_ms       = int(os.getenv("VAD_FRAME_MS", "30"))          # 10/20/30
-        self.start_win      = int(os.getenv("VAD_START_WIN", "5"))          # majority window
-        self.start_min      = int(os.getenv("VAD_START_MIN", "3"))          # minimum speech votes in window
-        self.start_consec   = int(os.getenv("VAD_START_CONSEC_MIN", "3"))   # consecutive speech frames
-        self.end_hang_ms    = int(os.getenv("VAD_END_HANG_MS", "400"))      # hangover after silence
-        self.end_guard_ms   = int(os.getenv("VAD_END_GUARD_MS", "1200"))    # minimum duration from start to silence end
-        self.preroll_ms     = int(os.getenv("VAD_PREROLL_MS", "240"))       # buffer pre-roll
-        self.max_utter      = float(os.getenv("MAX_UTTER_S", "8.0"))        # hard upper bound
-        self.no_speech      = float(os.getenv("NO_SPEECH_TIMEOUT_S", "3.0"))# timeout before start
-
-        # Sanity
-        if self.frame_ms not in (10, 20, 30):
-            self.frame_ms = 30
-        if self.sr not in (8000, 16000, 32000, 48000):
-            raise ValueError("Sample rate must be 8000/16000/32000/48000 for WebRTC-VAD")
-
-        # Derived values
-        self.frame_samples  = (self.sr * self.frame_ms) // 1000
-        self.frame_bytes    = self.frame_samples * 2  # int16 mono
-        self.hang_frames    = max(1, math.ceil(self.end_hang_ms / self.frame_ms))
-        self.preroll_frames = max(0, self.preroll_ms // self.frame_ms)
-        self.end_guard_s    = self.end_guard_ms / 1000.0
-
-    def record(self, recorder, no_speech_timeout_s: float | None = None, end_guard_s: float | None = None):
-        local_no_speech = float(no_speech_timeout_s) if no_speech_timeout_s is not None else self.no_speech
-        local_end_guard = float(end_guard_s) if end_guard_s is not None else self.end_guard_s
-
-        votes = collections.deque(maxlen=self.start_win)
-        preroll = collections.deque(maxlen=self.preroll_frames)
-        buf = io.BytesIO()
-
-        start_ts = time.monotonic()
-        speech_started = False
-        started_at = None
-        frames_since_end = 0
-        consec_speech = 0
-
-        while True:
-            now = time.monotonic()
-            # Safety: vor Start -> local_no_speech, nach Start -> max_utter
-            if (now - start_ts) > (self.max_utter if speech_started else local_no_speech):
-                break
-
-            frame = recorder.read_bytes(self.frame_bytes)
-            if not frame:
-                continue
-
-            is_speech = self.vad.is_speech(frame, self.sr)
-
-            if not speech_started:
-                votes.append(1 if is_speech else 0)
-                if self.preroll_frames:
-                    preroll.append(frame)
-                consec_speech = (consec_speech + 1) if is_speech else 0
-
-                if len(votes) == self.start_win and sum(votes) >= self.start_min and consec_speech >= self.start_consec:
-                    for fr in preroll:
-                        buf.write(fr)
-                    buf.write(frame)
-                    speech_started = True
-                    started_at = now
-                    frames_since_end = 0
-                else:
-                    continue
-            else:
-                buf.write(frame)
-                if is_speech:
-                    frames_since_end = 0
-                else:
-                    frames_since_end += 1
-                    if frames_since_end >= self.hang_frames and (now - started_at) >= local_end_guard:
-                        break
-
-        pcm = buf.getvalue()
-        dur_s = len(pcm) / (2 * self.sr)
-        return pcm, dur_s
-
-# ===== Recorder: ein InputStream, int16-Pipeline mit optionalem AGC =====
-class Recorder:
-    """
-    Audio-Recorder auf Basis sounddevice.RawInputStream.
-    - read(n_samples) -> np.float32 mono [-1..1] (mit Software-Gain)
-    - read_bytes(n_bytes) -> raw PCM16 bytes
-    - flush()/clear_queue()/flush_input_buffers(): clear buffers
-    - Half-duplex: via self._listen (and backward compatible through global _listen)
-    """
-    def __init__(self, sr=16000, vad_aggr=2):
-        self.sr = int(sr)
-        self.vad_aggr = int(vad_aggr)
-
-        # MIC environment
-        dev_env = os.getenv("MIC_DEVICE", "0")
-        self.device = dev_env if not dev_env.isdigit() else int(dev_env)
-        self.gain_db = float(os.getenv("MIC_GAIN_DB", "0"))
-        self.auto_gain = os.getenv("MIC_AUTO_GAIN", "0") in ("1", "true", "True")
-        self.target_dbfs = float(os.getenv("MIC_TARGET_DBFS", "-18"))
-        self.max_gain_db = float(os.getenv("MIC_MAX_GAIN_DB", "35"))
-
-        # Software gain (only for read -> float32)
-        self._lin_gain = float(10.0 ** (self.gain_db / 20.0)) if self.gain_db else 1.0
-
-        # Buffers
-        self._q = queue.Queue()          # collects raw bytes (int16 mono)
-        self._resid = b""                # any remaining bytes between reads
-        self._level_buf = np.empty(0, dtype=np.float32)  # for level display
-        self._level_max_sec = 2.0
-
-        # Stream/Thread
-        self._stream = None
-        self._running = False
-
-        # Half-duplex flag (instance-wide); stays backward compatible with global _listen
-        self._listen = True
-
-        logger.info(
-            "[pi] MIC env: device=%s sr=%s gain_db=%.1f agc=%s target=%.1f max=%.1f",
-            self.device,
-            self.sr,
-            self.gain_db,
-            self.auto_gain,
-            self.target_dbfs,
-            self.max_gain_db,
-        )
-
-        # ---- internal callback for the stream ----
-    def _callback(self, indata, frames, time_info, status):
-        # indata: bytes (RawInputStream, dtype='int16', channels=1)
-        if status:
-            logger.warning("[rec] status: %s", status)
-
-        # During TTS do NOT enqueue:
-        # - Primary: instance-wide flag self._listen
-        # - Additionally: global _listen for backward compatibility with half_duplex_tts()
-        if not (getattr(self, "_listen", True) and globals().get("_listen", True)):
-            return  # important: no queue put, no level update
-
-        # Raw data into queue
-        self._q.put(bytes(indata))
-
-        # For level display (float32 mono)
-        x = np.frombuffer(indata, dtype="<i2").astype(np.float32) / 32768.0
-        # Trim level buffer if needed
-        max_len = int(self._level_max_sec * self.sr)
-        if self._level_buf.size == 0:
-            self._level_buf = x
-        else:
-            need_cut = max(0, (self._level_buf.size + x.size) - max_len)
-            if need_cut:
-                self._level_buf = self._level_buf[need_cut:]
-            self._level_buf = np.concatenate((self._level_buf, x), dtype=np.float32)
-
-    # ---- Start/Stop ----
-    def start(self):
-        if self._running:
-            return
-        self._stream = sd.RawInputStream(
-            samplerate=self.sr,
-            channels=1,
-            dtype="int16",
-            blocksize=0,         # PortAudio picks automatically
-            device=self.device,
-            callback=self._callback,
-        )
-        self._stream.start()
-        self._running = True
-
-        # kurzen Moment sammeln, dann Pegel zeigen
-        time.sleep(0.25)
-        db = self.mic_level_dbfs()
-        if db is not None:
-            logger.info(
-                "[pi] mic level ≈ %.1f dBFS (post-gain, target %.0f dBFS, gain %.1f dB)",
-                db,
-                self.target_dbfs,
-                self.max_gain_db,
-            )
-
-    def stop(self):
-        if self._stream:
-            try:
-                self._stream.stop()
-                self._stream.close()
-            except Exception:
-                pass
-        self._stream = None
-        self._running = False
-        self.flush()
-
-    # ---- Utility ----
-    def mic_level_dbfs(self):
-        if self._level_buf.size == 0:
-            return None
-        # RMS in dBFS, aber "post-gain" (was OWW sieht)
-        x = self._level_buf * self._lin_gain
-        rms = float(np.sqrt(np.mean(np.square(x)) + 1e-12))
-        db = 20.0 * np.log10(rms + 1e-12)
-        return db
-
-    def flush(self):
-        """Alles verwerfen: Queue + Rest + Level-Buffer."""
-        dropped = 0
-        if hasattr(self, "_q") and self._q is not None:
-            try:
-                while True:
-                    self._q.get_nowait()
-                    dropped += 1
-            except queue.Empty:
-                pass
-        self._resid = b""
-        self._level_buf = np.empty(0, dtype=np.float32)
-        if dropped:
-            logger.debug("[rec] flush: dropped %d chunks", dropped)
-
-    # Aliases for different callers
-    def clear_queue(self):
-        self.flush()
-
-    def flush_input_buffers(self):
-        self.flush()
-
-    # ---- Read as float32 (for OWW) ----
-    def read(self, n_samples):
-        """
-        Block until n_samples float32 mono samples are available (with software gain).
-        Uses the raw bytes from the queue. """
-        need = int(n_samples) * 2  # 2 bytes/sample (int16)
-        data = bytearray()
-
-        # include any remainder first
-        if self._resid:
-            data.extend(self._resid)
-            self._resid = b""
-
-        # pull from queue until enough
-        while len(data) < need:
-            chunk = self._q.get()  # blockierend
-            data.extend(chunk)
-
-        # park any overflow
-        if len(data) > need:
-            self._resid = bytes(data[need:])
-            data = data[:need]
-
-        # nach float32 wandeln + Gain
-        x = np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768.0
-        if self._lin_gain != 1.0:
-            x = np.clip(x * self._lin_gain, -1.0, 1.0, out=x)
-        return x
-
-    # ---- Read as bytes (for STT/storage) ----
-    def read_bytes(self, n_bytes):
-        """
-        Block until n_bytes raw bytes (int16 mono) are available.
-        No software gain applied here!
-        """
-        need = int(n_bytes)
-        data = bytearray()
-
-        if self._resid:
-            take = min(len(self._resid), need)
-            data.extend(self._resid[:take])
-            self._resid = self._resid[take:]
-
-        while len(data) < need:
-            chunk = self._q.get()
-            data.extend(chunk)
-
-        if len(data) > need:
-            self._resid = bytes(data[need:])
-            data = data[:need]
-
-        return bytes(data)
-
-# --- Wakeword (openWakeWord, int16 @ 16 kHz, 80-ms-aligned, refractory/re-arm) ---
-class Wakeword:
-    """
-    expects Recorder.read(n_hw) -> float32 @ hw_sr (mono), delivers blocking until WAKE.
-    Core features:
-    - OWW wants 16 kHz INT16; we resample 48k/32k to 16k float32 and cast to int16 just before calling predict().
-    - Windows/Hops are multiples of 80 ms (1280 samples @16k) => stable scores.
-    - Refractory period + Re-Arm: avoids re-triggering immediately after WAKE or after TTS.
-    - reset_after_tts(): nullify ring-buffer + suppress shortly after TTS.
-    """
-
-    def __init__(self, backend: str, model_path: str, threshold: float,
-                 hw_sr: int = None, sr: int = None):
-        # ---- New: alias support for sr= ----
-        if hw_sr is None and sr is not None:
-            hw_sr = sr
-        if hw_sr is None:
-            raise TypeError("Wakeword.__init__() requires a hardware sample rate: pass hw_sr= or sr=")
-
-        b = (backend or "oww").lower()
-        if b not in ("oww", "openwakeword"):
-            raise ValueError("WAKEWORD_BACKEND must be 'oww' or 'openwakeword'")
-
-        self.hw_sr     = int(hw_sr)   # 48000
-        self.oww_sr    = 16000        # OWW expects 16 kHz
-        self.threshold = float(threshold)
-        self.debug     = os.getenv("OWW_DEBUG", "0") != "0"
-
-        g = gcd(self.hw_sr, self.oww_sr)
-        self._up   = self.oww_sr // g
-        self._down = self.hw_sr  // g
-
-        M = 1280
-        win_ms = int(os.getenv("OWW_WIN_MS", "800"))
-        hop_ms = int(os.getenv("OWW_HOP_MS", "160"))
-        self.win_oww = max(M, (self.oww_sr * win_ms // 1000) // M * M)
-        self.hop_oww = max(M, (self.oww_sr * hop_ms // 1000) // M * M)
-        self.hop_hw  = int(self.hop_oww * self._down / self._up)
-
-        self.rearm_ratio    = float(os.getenv("WAKE_REARM_RATIO", "0.6"))
-        self.min_gap_s      = float(os.getenv("WAKE_MIN_GAP_S", "1.5"))
-        self.rearm_low_n    = int(os.getenv("WAKE_REARM_LOW_COUNT", "3"))
-        self.after_tts_s    = float(os.getenv("OWW_SUPPRESS_AFTER_TTS_S", "0.8"))
-        self.last_wake_ts   = 0.0
-        self.suppress_until = 0.0
-        self.armed          = True
-        self._below_consec  = 0
-        self._was_above     = False
-
-        self.detector = _OWWModel(
-            wakeword_models=[model_path],
-            inference_framework="onnx",
-        )
-        probe = np.zeros(self.win_oww, dtype=np.int16)
-        keys  = self.detector.predict(probe)
-        self.key = next(iter(keys.keys()))
-
-        if self.debug:
-            logger.debug(
-                "[oww] using model: %s  threshold=%s hw_sr=%s  oww_sr=%s",
-                model_path,
-                self.threshold,
-                self.hw_sr,
-                self.oww_sr,
-            )
-            logger.debug(
-                "[oww] resampler: scipy.resample_poly (up/down=%s/%s) win=%s hop=%s (80-ms multiples)",
-                self._up,
-                self._down,
-                self.win_oww,
-                self.hop_oww,
-            )
-
-        self.ring = np.zeros(self.win_oww, dtype=np.float32)
-    
-    # ---------- Public hooks ----------
-    def reset_after_tts(self):
-        """After TTS: clear the ring, set a short suppression window, rebuild re-arm."""
-        self.ring.fill(0.0)
-        self._below_consec  = 0
-        self._was_above     = False
-        self.armed          = False
-        self.suppress_until = time.monotonic() + self.after_tts_s
-
-    def wait(self, recorder) -> None:
-        """
-        Block until the wakeword is detected.
-        recorder.read(n_hw) soll float32 @ self.hw_sr liefern (mono).
-        """
-        # Prime the ring buffer first (4 hops)
-        need_hw = self.hop_hw * 4
-        acc = np.empty(0, dtype=np.float32)
-        while acc.size < need_hw:
-            chunk = recorder.read(self.hop_hw)
-            if chunk is None or chunk.size == 0:
-                time.sleep(0.005); continue
-            if chunk.ndim > 1:
-                chunk = chunk.reshape(-1)
-            acc = np.concatenate([acc, chunk.astype(np.float32, copy=False)])
-
-        y0 = self._resample_hw_to_oww(acc[:need_hw])
-        if y0.size:
-            if y0.size >= self.win_oww:
-                self.ring[:] = y0[-self.win_oww:]
-            else:
-                self.ring[-y0.size:] = y0
-
-        # Hauptloop
-        while True:
-            chunk = recorder.read(self.hop_hw)
-            if chunk is None or chunk.size == 0:
-                time.sleep(0.005); continue
-            if chunk.ndim > 1:
-                chunk = chunk.reshape(-1)
-            y = self._resample_hw_to_oww(chunk.astype(np.float32, copy=False))
-
-            if y.size >= self.win_oww:
-                self.ring[:] = y[-self.win_oww:]
-            elif y.size > 0:
-                self.ring = np.roll(self.ring, -y.size)
-                self.ring[-y.size:] = y
-
-            score = self._predict(self.ring)
-            if self.debug:
-                logger.debug("[oww] score=%.3f (%s)", score, self.key)
-
-            now = time.monotonic()
-            rearm_level = self.threshold * self.rearm_ratio
-
-            # Build re-arm criterion
-            if score < rearm_level:
-                self._below_consec += 1
-            else:
-                self._below_consec = 0
-
-            # Suppression window after TTS / last WAKE
-            if now < self.suppress_until:
-                self._was_above = (score >= self.threshold)
-                continue
-
-            # Not armed again yet? Wait for sufficiently low scores in a row
-            if not self.armed:
-                if self._below_consec >= self.rearm_low_n:
-                    self.armed = True
-                self._was_above = (score >= self.threshold)
-                if not self.armed:
-                    continue
-
-            # Rising-Edge + armed → WAKE
-            if score >= self.threshold and not self._was_above and self.armed:
-                logger.info("[oww] WAKE")
-                self.last_wake_ts   = now
-                self.armed          = False
-                self.suppress_until = now + self.min_gap_s  # refractory window
-                self._was_above     = True
-                return
-
-            # keep track of Edge-Status 
-            self._was_above = (score >= self.threshold)
-
-    # ---------- internal ----------
-    def _resample_hw_to_oww(self, x_hw_f32: np.ndarray) -> np.ndarray:
-        if x_hw_f32 is None or x_hw_f32.size == 0:
-            return np.empty(0, dtype=np.float32)
-        return resample_poly(
-            x_hw_f32.astype(np.float32, copy=False),
-            self._up, self._down
-        ).astype(np.float32, copy=False)
-
-    def _predict(self, y_oww_f32: np.ndarray) -> float:
-        # crop down to multiple of 80-ms (1280 Samples @16k)
-        M = 1280
-        n = (y_oww_f32.size // M) * M
-        if n == 0:
-            return 0.0
-        y = y_oww_f32[:n]
-        # float32 [-1..1] → int16 PCM
-        y16 = (np.clip(y, -1.0, 1.0) * 32767.0).astype(np.int16, copy=False)
-        out = self.detector.predict(y16)
-        return float(out[self.key])
-
-# --- Flush-Helper (uses Recorder.flush_input_buffers / flush / known queue-names) ---
 def _flush_input_buffers(recorder):
-    # native methode available?
     if hasattr(recorder, "flush_input_buffers") and callable(recorder.flush_input_buffers):
-        try:
-            recorder.flush_input_buffers()
-            return
-        except Exception:
-            pass
-    # Fallback to flush()
+        try: recorder.flush_input_buffers(); return
+        except Exception: pass
     if hasattr(recorder, "flush") and callable(recorder.flush):
-        try:
-            recorder.flush()
-            return
-        except Exception:
-            pass
-    # flush internaö queues
+        try: recorder.flush(); return
+        except Exception: pass
     for name in ("_q", "q", "_queue", "queue", "input_queue", "_input_q"):
         q = getattr(recorder, name, None)
-        if q is None:
-            continue
+        if q is None: continue
         try:
-            while True:
-                q.get_nowait()
-        except Exception:
-            pass
+            while True: q.get_nowait()
+        except Exception: pass
 
-# --- TTS + back to idle (uses say() exclusively) ---
 def speak_and_back_to_idle(text: str, recorder, kw):
-    """
-    Speak text via the FIFO-based say(), avoid echo (mute mic),
-    drain input buffers, and cleanly re-arm the wakeword.
-    """
-
     if not BARGE_IN:
-        # Hard-close mic: callback MUST NOT enqueue (see Recorder._callback AND logic)
-        setattr(recorder, "_listen", False)
-        # Clear input buffers before TTS
-        _flush_input_buffers(recorder)
-
-    # TTS (the warm-Start-Pipeline with half_duplex_tts + estimate_tts_seconds)
-    say(text)
-
+        recorder.set_listen(False)
+        recorder.flush()
+    say(text, recorder=recorder, wakeword=kw)
     if not BARGE_IN:
         post_cd = float(os.getenv("COOLDOWN_AFTER_TTS_S", "0.5"))
-        if post_cd > 0:
-            time.sleep(post_cd)
-        _flush_input_buffers(recorder)
+        if post_cd > 0: time.sleep(post_cd)
+        recorder.flush()
         kw.reset_after_tts()
-        setattr(recorder, "_listen", True)
+        recorder.set_listen(True)
     else:
-        # Mic stays open; wakeword/ASR may continue
         kw.reset_after_tts()
 
 def chat_once(user_text: str) -> str:
-    """Non-streaming LLM call: accumulate all chunks into one answer."""
     logger.info("[llm] request → %r", user_text)
     buf = ""
     try:
@@ -1912,40 +1430,28 @@ def chat_once(user_text: str) -> str:
     logger.info("[llm] reply → %r", buf)
     return buf
 
-# ===== Conversation buffer =====
 class ConversationMemory:
     def __init__(self, max_turns: int = 6, system_prompt: str | None = None):
         self.max_turns = int(max_turns)
         self.system_prompt = (system_prompt or "").strip() or None
-        self._pairs = collections.deque()  # list of (user, assistant)
-
+        self._pairs = collections.deque()
     def reset(self):
         self._pairs.clear()
-
     def add_user(self, text: str):
-        # Placeholder: we record a pair after each reply
         self._last_user = text
-
     def add_assistant(self, text: str):
-        u = getattr(self, "_last_user", None)
-        if u is None:
-            u = ""
+        u = getattr(self, "_last_user", None) or ""
         self._pairs.append((u, text))
-        # trim
         while self.max_turns > 0 and len(self._pairs) > self.max_turns:
             self._pairs.popleft()
-        # cleanup
         self._last_user = None
-
     def build_messages(self, current_user: str):
         msgs = []
         if self.system_prompt:
             msgs.append({"role": "system", "content": self.system_prompt})
         for u, a in list(self._pairs):
-            if u:
-                msgs.append({"role": "user", "content": u})
-            if a:
-                msgs.append({"role": "assistant", "content": a})
+            if u: msgs.append({"role": "user", "content": u})
+            if a: msgs.append({"role": "assistant", "content": a})
         msgs.append({"role": "user", "content": current_user})
         return msgs
 
@@ -1954,10 +1460,7 @@ _conv = ConversationMemory(
     system_prompt=os.getenv("LLM_SYSTEM_PROMPT", "")
 )
 
-
 def _run_startup_checks(logger: logging.Logger) -> None:
-    """Validate that STT, Ollama, and Piper are reachable before starting."""
-
     check_stt_health(STT_URL, timeout=3.0, logger=logger)
     check_ollama_model(OLLAMA_URL, OLLAMA_MODEL, timeout=3.0, logger=logger)
     if TTS_MODE.lower() == "mqtt" or PIPER_MQTT_HOST:
@@ -1974,94 +1477,53 @@ def _run_startup_checks(logger: logging.Logger) -> None:
             logger=logger,
         )
 
-
 def _clamp_servo_angle(servo: Servo, angle: float) -> float:
     cfg = servo.config
     return max(cfg.min_angle_deg, min(cfg.max_angle_deg, angle))
 
-
-def _drive_anim_targets(
-    targets: Mapping[str, float], duration_s: float, stop_event: threading.Event
-) -> None:
-    """Move animation servos towards the desired targets for a duration."""
-
+def _drive_anim_targets(targets: Mapping[str, float], duration_s: float, stop_event: threading.Event) -> None:
     servo_targets: Dict[Servo, float] = {}
     for name, angle in targets.items():
         servo = _get_anim_servo(name)
-        if servo is None:
-            continue
+        if servo is None: continue
         servo_targets[servo] = _clamp_servo_angle(servo, angle)
-
     if not servo_targets:
         stop_event.wait(duration_s)
         return
-
     for servo, angle in servo_targets.items():
         servo.move_to(angle)
-
     remaining = max(0.0, duration_s)
     step = 0.05
     while remaining > 0.0:
         dt = min(step, remaining)
-        if stop_event.wait(dt):
-            break
-        for servo in servo_targets:
-            servo.update(dt)
+        if stop_event.wait(dt): break
+        for servo in servo_targets: servo.update(dt)
         remaining -= dt
 
-
 def _personality_neutral_targets() -> Dict[str, float]:
-    """Return neutral angles for all personality servos that are available."""
-
     neutral_targets: Dict[str, float] = {}
     for name in PERSONALITY_SERVO_NAMES:
         servo = _get_anim_servo(name)
-        if servo is None:
-            continue
+        if servo is None: continue
         neutral_targets[name] = _clamp_servo_angle(servo, servo.config.neutral_deg)
     return neutral_targets
 
-
 def _run_demomode_thinking(stop_event: threading.Event) -> None:
-    """Play the periodic thinking animation with alternating ears."""
-
     head = _get_anim_servo("NRL")
     left_ear = _get_anim_servo("EAL")
     right_ear = _get_anim_servo("EAR")
-
     duration = 10.0
     end_time = time.monotonic() + duration
-
     if head is None and left_ear is None and right_ear is None:
-        logger.debug("Demomode thinking animation skipped (no servos available)")
         stop_event.wait(duration)
         return
-
-    head_neutral = head.config.neutral_deg if head is not None else 0.0
-    head_left = _clamp_servo_angle(head, head_neutral + 25.0) if head is not None else None
-    head_right = _clamp_servo_angle(head, head_neutral - 25.0) if head is not None else None
-
-    left_forward = (
-        _clamp_servo_angle(left_ear, left_ear.config.neutral_deg + 12.0)
-        if left_ear is not None
-        else None
-    )
-    left_back = (
-        _clamp_servo_angle(left_ear, left_ear.config.neutral_deg - 12.0)
-        if left_ear is not None
-        else None
-    )
-
-    right_forward = (
-        _clamp_servo_angle(right_ear, right_ear.config.neutral_deg + 12.0)
-        if right_ear is not None
-        else None
-    )
-    right_back = (
-        _clamp_servo_angle(right_ear, right_ear.config.neutral_deg - 12.0)
-        if right_ear is not None
-        else None
-    )
+    head_neutral = head.config.neutral_deg if head else 0.0
+    head_left = _clamp_servo_angle(head, head_neutral + 25.0) if head else None
+    head_right = _clamp_servo_angle(head, head_neutral - 25.0) if head else None
+    left_forward = _clamp_servo_angle(left_ear, left_ear.config.neutral_deg + 12.0) if left_ear else None
+    left_back = _clamp_servo_angle(left_ear, left_ear.config.neutral_deg - 12.0) if left_ear else None
+    right_forward = _clamp_servo_angle(right_ear, right_ear.config.neutral_deg + 12.0) if right_ear else None
+    right_back = _clamp_servo_angle(right_ear, right_ear.config.neutral_deg - 12.0) if right_ear else None
 
     toggle = False
     while time.monotonic() < end_time and not stop_event.is_set():
@@ -2072,81 +1534,63 @@ def _run_demomode_thinking(stop_event: threading.Event) -> None:
             targets["EAL"] = left_forward if toggle else left_back
         if right_forward is not None and right_back is not None:
             targets["EAR"] = right_back if toggle else right_forward
-
         _drive_anim_targets(targets, 0.9, stop_event)
-        if stop_event.is_set() or time.monotonic() >= end_time:
-            break
+        if stop_event.is_set() or time.monotonic() >= end_time: break
         _drive_anim_targets(targets, 0.7, stop_event)
         toggle = not toggle
-
     neutral_targets = _personality_neutral_targets()
     _drive_anim_targets(neutral_targets, 1.0, stop_event)
 
-
 def demomode() -> None:
-    """Run Coglet in demo mode without audio, network, or MQTT traffic."""
-
     logger.warning("Attention: Demomode active")
     servo_setup = _initialize_all_servos(logger)
     _initialize_status_led()
     _eyelids_set_mode("auto")
-    _apply_pose_safe("pose_rest")
     _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
-
-    face_tracker = None
-    face_tracker_cleanup: Callable[[], None] | None = None
     try:
         bundle = _setup_face_tracking(logger, servo_setup)
-    except Exception as exc:
-        logger.error("Face tracking setup failed: %s", exc)
-        bundle = None
-    if bundle:
-        face_tracker, face_tracker_cleanup = bundle
-        try:
-            face_tracker.start()
-            logger.info("Face tracking thread running (enabled=%s)", FACE_TRACKING_ENABLED)
-        except Exception as exc:
-            logger.error("Face tracking start failed: %s", exc)
-            if face_tracker_cleanup is not None:
-                face_tracker_cleanup()
-            face_tracker = None
-            face_tracker_cleanup = None
-    else:
-        logger.info("Face tracking not initialised; see previous log lines for details")
-
+        if bundle:
+            tracker, cleanup = bundle
+            tracker.start()
+    except Exception as e: logger.error(e)
+    
     stop_event = threading.Event()
     try:
         while not stop_event.is_set():
-            if stop_event.wait(60.0):
-                break
+            if stop_event.wait(60.0): break
             _led_set_state_safe(CogletState.THINKING)
             _run_demomode_thinking(stop_event)
             _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
-    except KeyboardInterrupt:
-        logger.info("Demomode interrupted by user.")
+    except KeyboardInterrupt: pass
     finally:
         stop_event.set()
-        if face_tracker_cleanup is not None:
-            try:
-                face_tracker_cleanup()
-            except Exception as exc:
-                logger.debug("Face tracking cleanup failed: %s", exc)
+        if servo_setup: _cleanup_servo_hardware(servo_setup)
+
+def _fallback_chat_once(prompt: str) -> str:
+    try:
+        url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
+        payload = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
+        r = requests.post(url, json=payload, timeout=120)
+        r.raise_for_status()
+        return (r.json().get("response") or "").strip()
+    except Exception as e:
+        logger.exception(f"[llm] fallback ✗ {e}")
+        return ""
+
+def llm_chat_once(user_text: str) -> str:
+    use_chat = os.getenv("LLM_USE_CHAT", "1") in ("1","true","True")
+    if use_chat:
         try:
-            _restore_neutral_pose_and_close_lid()
-        except Exception as exc:
-            logger.debug("Neutral pose restore during demomode shutdown failed: %s", exc)
-        _cleanup_servo_hardware(servo_setup)
-        try:
-            _led_set_state_safe(CogletState.OFF)
-        except Exception:
-            pass
+            msgs = _conv.build_messages(user_text)
+            resp = _ollama_chat(msgs)
+            return resp.strip()
+        except Exception: pass
+    return _fallback_chat_once(user_text).strip()
 
 def _ollama_chat(messages: list[dict]) -> str:
-    """Direkter Chat-Aufruf gegen Ollama /api/chat mit Verlauf."""
     url = f"{os.getenv('OLLAMA_URL','http://192.168.10.161:11434').rstrip('/')}/api/chat"
-    model = os.getenv("OLLAMA_MODEL", "wheatley")
     payload = {
-        "model": model,
+        "model": os.getenv("OLLAMA_MODEL", "coglet:latest"),
         "messages": messages,
         "stream": False,
         "options": {
@@ -2157,15 +1601,53 @@ def _ollama_chat(messages: list[dict]) -> str:
     }
     r = requests.post(url, json=payload, timeout=120)
     r.raise_for_status()
-    js = r.json()
-    # Ollama /api/chat: Antwort steckt in js["message"]["content"]
-    return (js.get("message", {}) or {}).get("content", "") or ""
+    return (r.json().get("message", {}) or {}).get("content", "") or ""
+
+def _pcm16_to_wav_bytes(pcm_bytes: bytes, sr_in: int, sr_out: int | None = None) -> bytes:
+    if sr_out is None or sr_out == sr_in:
+        data_i16 = np.frombuffer(pcm_bytes, dtype="<i2")
+        used_sr  = sr_in
+    else:
+        x = np.frombuffer(pcm_bytes, dtype="<i2").astype(np.float32) / 32768.0
+        g = math.gcd(sr_in, sr_out)
+        up, down = sr_out // g, sr_in // g
+        y = resample_poly(x, up, down)
+        y = np.clip(y, -1.0, 1.0)
+        data_i16 = (y * 32767.0).astype("<i2", copy=False)
+        used_sr  = sr_out
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(used_sr)
+        w.writeframes(data_i16.tobytes())
+    return buf.getvalue()
+
+def _http_stt_request(pcm_bytes: bytes, sample_rate: int) -> dict | None:
+    try:
+        target_sr = int(os.getenv("STT_RESAMPLE_TO_HZ", "16000"))
+        lang      = os.getenv("STT_LANG", "de")
+        wav_bytes = _pcm16_to_wav_bytes(pcm_bytes, sample_rate, target_sr)
+        url = f"{STT_URL.rstrip('/')}/stt"
+        files = {"audio": ("speech.wav", wav_bytes, "audio/wav")}
+        data  = {"lang": lang}
+        
+        logger.info(f"[stt] http → POST {url} (wav {len(wav_bytes)} bytes)")
+        r = requests.post(url, files=files, data=data, timeout=60)
+        r.raise_for_status()
+        js = r.json()
+        return js
+    except Exception as e:
+        logger.exception("[stt] http ✗ %s", e)
+        return None
+
+def stt_transcribe(pcm_bytes: bytes, sample_rate: int) -> dict | None:
+    return _http_stt_request(pcm_bytes, sample_rate)
 
 # -------------------- Hauptloop --------------------
 def main():
-    logger.info("[pi] Coglet PI starting. STT: %s OLLAMA: %s MODEL: %s", STT_URL, OLLAMA_URL, OLLAMA_MODEL)
-    logger.info("[rec] Using MIC_DEVICE=%r, MIC_SR=%s", MIC_DEVICE, MIC_SR)
-
+    logger.info("[pi] Coglet PI starting v%s", __version__)
+    
     if DEMOMODE:
         demomode()
         return
@@ -2180,339 +1662,263 @@ def main():
         sys.exit(1)
 
     servo_setup = _initialize_all_servos(logger)
-
-    # --- Status-LED ---
     _initialize_status_led()
+
+    # --- Hardware Mic (VAD/DOA) ---
+    mic_hw = None
+    if _XVF_MIC_AVAILABLE:
+        mic_hw = ReSpeakerMic(logger)
+        mic_hw.start()
+    else:
+        logger.info("[mic] Hardware VAD/DOA not available")
 
     # --- Ready prompt ---
     if MODEL_READY:
         logger.info("[pi] model ready → speak")
         say(MODEL_READY)
-        logger.info("[piper] say %s", MODEL_READY)
 
-    # --- Recorder starten ---
+    # --- Recorder & Wakeword ---
     rec = Recorder(sr=MIC_SR, vad_aggr=VAD_AGGR)
     rec.start()
+    kw = Wakeword(WAKEWORD_BACKEND, OWW_MODEL, OWW_THRESHOLD, hw_sr=rec.sr)
 
-    # --- Wakeword vorbereiten ---
-    kw = Wakeword(WAKEWORD_BACKEND, OWW_MODEL, OWW_THRESHOLD, sr=rec.sr)
-
+    # --- Face Tracking ---
     face_tracker = None
-    face_tracker_cleanup: Callable[[], None] | None = None
+    face_tracker_cleanup = None
     try:
         bundle = _setup_face_tracking(logger, servo_setup)
-    except Exception as exc:
-        logger.error("Face tracking setup failed: %s", exc)
-        bundle = None
-    if bundle:
-        face_tracker, face_tracker_cleanup = bundle
-        try:
+        if bundle:
+            face_tracker, face_tracker_cleanup = bundle
             face_tracker.start()
-            logger.info("Face tracking thread running (enabled=%s)", FACE_TRACKING_ENABLED)
-        except Exception as exc:
-            logger.error("Face tracking start failed: %s", exc)
-            if face_tracker_cleanup is not None:
-                face_tracker_cleanup()
-            face_tracker = None
-            face_tracker_cleanup = None
-    else:
-        logger.info("Face tracking not initialised; see previous log lines for details")
+    except Exception as e:
+        logger.error("Face tracking setup failed: %s", e)
 
-    # ===== STT: PCM -> WAV -> HTTP =====
-    # ---------- Helper: PCM16 → WAV-Bytes (optional Resample) ----------
-    def _pcm16_to_wav_bytes(pcm_bytes: bytes, sr_in: int, sr_out: int | None = None) -> bytes:
-        """int16-PCM (mono, LE) in WAV verpacken, optional auf sr_out resamplen."""
-        if sr_out is None or sr_out == sr_in:
-            data_i16 = np.frombuffer(pcm_bytes, dtype="<i2")
-            used_sr  = sr_in
-        else:
-            x = np.frombuffer(pcm_bytes, dtype="<i2").astype(np.float32) / 32768.0
-            g = math.gcd(sr_in, sr_out)
-            up, down = sr_out // g, sr_in // g
-            y = resample_poly(x, up, down)
-            y = np.clip(y, -1.0, 1.0)
-            data_i16 = (y * 32767.0).astype("<i2", copy=False)
-            used_sr  = sr_out
-
-        buf = io.BytesIO()
-        with wave.open(buf, "wb") as w:
-            w.setnchannels(1)
-            w.setsampwidth(2)  # 16-bit
-            w.setframerate(used_sr)
-            w.writeframes(data_i16.tobytes())
-        return buf.getvalue()
-
-    # ---------- Helper: STT via HTTP (WAV) ----------
-    def _http_stt_request(pcm_bytes: bytes, sample_rate: int) -> dict | None:
-        """
-        Primärer STT-Pfad: WAV an Faster-Whisper-HTTP-Server schicken.
-        Nutzt STT_URL, STT_RESAMPLE_TO_HZ (Default 16000), STT_LANG (Default 'de').
-        """
-        try:
-            target_sr = int(os.getenv("STT_RESAMPLE_TO_HZ", "16000"))
-            lang      = os.getenv("STT_LANG", "de")
-            wav_bytes = _pcm16_to_wav_bytes(pcm_bytes, sample_rate, target_sr)
-            url = f"{STT_URL.rstrip('/')}/stt"
-            files = {"audio": ("utt.wav", wav_bytes, "audio/wav")}
-            # Dein Server erwartet 'lang' (nicht 'language'):
-            data  = {"lang": lang}
-            logger.info(f"[stt] http → POST {url} (wav {len(wav_bytes)} bytes, sr={target_sr}, lang={lang})")
-            r = requests.post(url, files=files, data=data, timeout=60)
-            if r.status_code >= 400:
-                logger.info(f"[stt] http -> {r.status_code}: {r.text}")
-            r.raise_for_status()
-            js = r.json()
-            logger.info(f"[stt] http ✓ text={js.get('text','')!r}")
-            return js
-        except requests.exceptions.ConnectionError as e:
-            logger.info("[stt] server unreachable: %s", e)
-            return None
-        except Exception as e:
-            logger.exception("[stt] http ✗ %s", e)
-            return None
-
-    def stt_transcribe(pcm_bytes: bytes, sample_rate: int) -> dict | None:
-        """Schlanker Primary-Pfad: immer HTTP-WAV."""
-        return _http_stt_request(pcm_bytes, sample_rate)
-
-    # ---------- LLM-Fallback: Ollama /api/generate ----------
-    def _fallback_chat_once(prompt: str) -> str:
-        try:
-            url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
-            payload = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
-            logger.info(f"[llm] fallback → POST {url} ({len(prompt)} chars)")
-            r = requests.post(url, json=payload, timeout=120)
-            r.raise_for_status()
-            js = r.json()
-            resp = (js.get("response") or "").strip()
-            logger.info(f"[llm] fallback ✓ {len(resp)} chars")
-            return resp
-        except Exception as e:
-            logger.exception(f"[llm] fallback ✗ {e}")
-            return ""
-
-    # ---------- LLM-Wrapper (nutzt chat_once(), sonst Fallback) ----------
-    def llm_chat_once(user_text: str) -> str:
-        """
-        Konversationsfähiger LLM-Aufruf:
-        - Wenn LLM_USE_CHAT=1: nutze _ollama_chat mit Verlauf (_conv)
-        - Sonst: Projektroutine chat_once oder Fallback (wie bisher)
-        """
-        use_chat = os.getenv("LLM_USE_CHAT", "1") in ("1","true","True")
-
-        if use_chat:
-            try:
-                msgs = _conv.build_messages(user_text)
-                resp = _ollama_chat(msgs)
-                return resp.strip()
-            except Exception as e:
-                # Fallback auf Projektfunktion, falls vorhanden
-                logger.warning("[llm] chat-path error: %s; falling back …", e)
-                pass
-
-        # Projektspezifisch vorhanden?
-        if "chat_once" in globals() and callable(globals()["chat_once"]):
-            try:
-                return (globals()["chat_once"](user_text) or "").strip()
-            except Exception as e:
-                logger.warning("[llm] project ✗ %s; fallback HTTP …", e)
-
-        # Letzter Fallback: /api/generate (ohne Verlauf)
-        return _fallback_chat_once(user_text).strip()
-
-    # --- Hauptloop ---
     exit_requested = False
+    last_activity_ts = time.monotonic()
+    is_deep_sleep = False
+    breath_center_pitch = 0.0
 
     try:
         while not exit_requested and not _shutdown_event.is_set():
             logger.info("[pi] waiting for wakeword")
-            _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
-            kw.wait(rec)  # blocks until WAKE (with refractory/re-arm)
-            logger.info("[pi] wakeword detected → speak")
-            # say("Ja?")
-            say(MODEL_CONFIRM)
-            logger.info("[piper] say %s", MODEL_CONFIRM)
             
-            # NEW: Verlauf beim neuen Wake leeren (konfigurierbar)
-            if os.getenv("LLM_RESET_ON_WAKE", "1") in ("1", "true", "True"):
+            if not is_deep_sleep:
+                _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
+                _start_idle_animation()
+            
+            # Wakeword Loop
+            wake_detected = False
+            while not wake_detected and not _shutdown_event.is_set():
+                # 1. Hardware VAD/DOA Check
+                if mic_hw and not is_deep_sleep:
+                    is_speaking, angle = mic_hw.get_status()
+                    if is_speaking:
+                        # Hier könnten wir den Kopf drehen!
+                        # logger.debug(f"[mic] Speech detected at {angle}°")
+                        pass
+
+                # 2. Audio Check
+                chunks = 0
+                while chunks < 5:
+                    if kw.check_once(rec):
+                        wake_detected = True
+                        break
+                    if rec._q.qsize() == 0:
+                        break
+                    chunks += 1
+                
+                if wake_detected: break
+
+                # 3. Deep Sleep Logic
+                now = time.monotonic()
+                if not is_deep_sleep and (now - last_activity_ts > DEEP_SLEEP_TIMEOUT_S):
+                    logger.info("[pi] Entering Deep Sleep")
+                    is_deep_sleep = True
+                    if face_tracker: face_tracker.stop()
+                    _stop_idle_animation()
+                    _eyelids_set_mode("closed")
+                    pitch = _get_anim_servo("NPT")
+                    if pitch:
+                        breath_center_pitch = min(pitch.config.max_angle_deg, pitch.config.neutral_deg + 30.0)
+                        pitch.move_to(breath_center_pitch)
+                    rec.flush()
+
+                if is_deep_sleep:
+                    phase = math.sin(now * 1.5)
+                    pitch = _get_anim_servo("NPT")
+                    if pitch:
+                        pitch.move_to(breath_center_pitch + (phase * 3.0))
+                    
+                    if _status_led:
+                        norm = (phase + 1.0) / 2.0
+                        brightness = 0.05 + (norm * 0.45)
+                        r, g = int(255 * brightness), int(180 * brightness)
+                        try:
+                            if hasattr(_status_led, "pixels"):
+                                _status_led.pixels.fill((r, g, 0))
+                                _status_led.pixels.show()
+                            elif hasattr(_status_led, "set_color"):
+                                _status_led.set_color(r, g, 0)
+                        except: pass
+                
+                time.sleep(0.01)
+
+            if _shutdown_event.is_set(): break
+
+            # --- WAKE UP ---
+            if is_deep_sleep:
+                logger.info("[pi] Waking up!")
+                is_deep_sleep = False
+                _apply_pose_safe(_personality_neutral_targets())
+                _eyelids_set_mode("auto")
+                _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
+                if face_tracker:
+                    if hasattr(face_tracker._config, 'patrol_enabled'):
+                         object.__setattr__(face_tracker._config, 'patrol_enabled', True)
+                    face_tracker.start()
+                time.sleep(0.5)
+
+            last_activity_ts = time.monotonic()
+            _stop_idle_animation()
+            
+            logger.info("[pi] wakeword detected")
+            say(MODEL_CONFIRM)
+            if os.getenv("LLM_RESET_ON_WAKE", "1") in ("1", "true"):
                 _conv.reset()
 
-            # Aufnahme mit sauberem Endpointing (WebRTC-VAD)
+            # ===> NEU: Hardware-Poll PAUSIEREN für saubere Aufnahme <===
+            if mic_hw: 
+                mic_hw.set_paused(True)
+          
+            # Record User
             endpoint = SpeechEndpoint(sr=rec.sr, vad_aggr=rec.vad_aggr)
             anim_listen_start()
             try:
-                pcm_bytes, dur_s = endpoint.record(rec)
+                pcm, dur = endpoint.record(rec)
             finally:
                 anim_listen_stop()
-            logger.info("[pi] recorded ~%.2fs, %d bytes @%sHz/16-bit/mono", dur_s, len(pcm_bytes), rec.sr)
 
-            # Nichts gesagt?
-            if len(pcm_bytes) < int(0.2 * rec.sr) * 2:
-                logger.info("[pi] no speech detected; back to idle")
-                _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
+            # ===> NEU: Hardware-Poll wieder AKTIVIEREN <===
+            if mic_hw: 
+                mic_hw.set_paused(False)
+
+            if len(pcm) < int(0.2 * rec.sr) * 2:
+                logger.info("[pi] silence; back to idle")
                 continue
-
-            # STT
-            logger.info("[stt] send → server")
+            
+            last_activity_ts = time.monotonic()
             _led_set_state_safe(CogletState.THINKING)
-            stt = stt_transcribe(pcm_bytes, rec.sr)
-            if not stt or not (stt.get("text") or "").strip():
-                logger.info("[stt] empty result; back to idle")
-                _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
+            
+            # STT
+            stt = stt_transcribe(pcm, rec.sr)
+            user_text = (stt.get("text") or "").strip() if stt else ""
+            if not user_text:
                 continue
-
-            user_text = stt["text"].strip()
+            
             logger.info("[pi] user: %s", user_text)
-
             if _is_program_exit_command(user_text):
-                logger.info("[pi] program exit command received → shutdown")
                 say(MODEL_BYEBYE)
-                exit_requested = True
-                _shutdown_event.set()
                 break
 
             _conv.add_user(user_text)
             anim_think_start()
             try:
-                reply = llm_chat_once(user_text) or ""
-            finally:
+                reply = llm_chat_once(user_text)
+            except Exception:
                 anim_think_stop()
-            _conv.add_assistant(reply)
+                raise
+            
+            if reply:
+                _conv.add_assistant(reply)
+                logger.info("[pi] assistant: %s", reply)
+                speak_and_back_to_idle(reply, rec, kw)
+            anim_think_stop()
+            last_activity_ts = time.monotonic()
 
-            t0 = time.monotonic()
-            logger.info("[pi] assistant: %s", reply)
-            logger.info("[tts] start (%d chars)", len(reply))
-            speak_and_back_to_idle(reply, rec, kw)
-            t1 = time.monotonic()
-            logger.info("[tts] done dt=%.3fs", t1 - t0)
-
-            # --- Follow-up Conversational Window ---
+            # --- Follow-Up Window ---
             if os.getenv("FOLLOWUP_ENABLE", "1") in ("1", "true", "True"):
-                try:
-                    max_turns = int(os.getenv("FOLLOWUP_MAX_TURNS", "10"))
-                except Exception:
-                    max_turns = 5
+                try: max_turns = int(os.getenv("FOLLOWUP_MAX_TURNS", "10"))
+                except: max_turns = 5
                 arm_s = float(os.getenv("FOLLOWUP_ARM_S", "3.0"))
                 fu_cd = float(os.getenv("FOLLOWUP_COOLDOWN_S", "0.10"))
-
                 turns = 0
-                _led_set_state_safe(CogletState.AWAIT_FOLLOWUP)
+                
                 while not exit_requested and not _shutdown_event.is_set() and (max_turns == 0 or turns < max_turns):
-                    turns += 1
                     _led_set_state_safe(CogletState.AWAIT_FOLLOWUP)
-                    # sehr kurzer Cooldown + Ring-Puffer leeren (Echo vermeiden)
                     time.sleep(fu_cd)
-                    rec.flush()
-                    logger.info("[pi] follow-up window (<= %.1fs) …", arm_s)
+                    rec.flush() # Clean buffer
 
-                    # Aufnahme nur, wenn innerhalb des Fensters Sprache startet:
+                    # ===> NEU: Hardware-Poll PAUSIEREN für saubere Aufnahme <===
+                    if mic_hw: 
+                        mic_hw.set_paused(True)
+                    
                     endpoint = SpeechEndpoint(sr=rec.sr, vad_aggr=rec.vad_aggr)
                     anim_listen_start()
                     try:
-                        pcm_bytes, dur_s = endpoint.record(rec, no_speech_timeout_s=arm_s)  # end guard unchanged
+                        pcm, dur = endpoint.record(rec, no_speech_timeout_s=arm_s)
                     finally:
                         anim_listen_stop()
 
-                    if len(pcm_bytes) < int(0.2 * rec.sr) * 2:
-                        logger.info("[pi] no follow-up detected; back to wakeword")
-                        text = EOC_ACK or MODEL_BYEBYE  
-                        say(text)
-                        logger.info("[piper] say %s", text)
-                        _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
-                        break  # return to wakeword
-
-                    logger.info("[pi] follow-up recorded ~%.2fs, %d bytes", dur_s, len(pcm_bytes))
-
-                    # STT
-                    logger.info("[stt] send → server (follow-up)")
-                    _led_set_state_safe(CogletState.THINKING)
-                    stt = stt_transcribe(pcm_bytes, rec.sr)
-                    if not stt or not (stt.get("text") or "").strip():
-                        logger.info("[stt] empty follow-up; back to wakeword")
-                        say(MODEL_BYEBYE)
-                        logger.info("[piper] say %s", MODEL_BYEBYE)
-                        _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
+                    # ===> NEU: Hardware-Poll wieder AKTIVIEREN <===
+                    if mic_hw: 
+                        mic_hw.set_paused(False)
+                              
+                    if len(pcm) < int(0.2 * rec.sr) * 2:
+                        logger.info("[pi] no follow-up detected")
+                        say(EOC_ACK)
+                        break 
+                    
+                    last_activity_ts = time.monotonic()
+                    
+                    stt = stt_transcribe(pcm, rec.sr)
+                    user_text = (stt.get("text") or "").strip() if stt else ""
+                    if not user_text:
+                        say(EOC_ACK)
                         break
 
-                    user_text = stt["text"].strip()
-                    logger.info("[pi] user (follow-up): %s", user_text)
-
+                    logger.info("[pi] user (fu): %s", user_text)
                     if _is_program_exit_command(user_text):
-                        logger.info("[pi] follow-up: program exit command → shutdown")
                         say(MODEL_BYEBYE)
                         exit_requested = True
                         _shutdown_event.set()
                         break
-
-                    # optional: „Exit“-Worte beenden die Konversation sofort
-                    def _norm_endphrase(s: str) -> str:
-                        # kleinschreibung, Satzzeichen raus, Mehrfach-Spaces komprimieren
-                        s = (s or "").lower().strip()
-                        s = re.sub(r"[^\wäöüß\s-]+", " ", s)   # Umlaute erhalten
-                        s = re.sub(r"\s+", " ", s)
-                        return s
-
-                    END_EXIT = {
-                        # DE
-                        "danke", "nein", "nein danke", "nichts", "nichts danke", "nichts danke schön",
-                        "nichts danke sehr", "nichts, danke", "passt", "alles gut", "das war's", "das wars",
-                        "stop", "stopp", "tschüss", "tschüssen", "abbrechen", "genug", "fertig",
-                        # EN (falls mal englische Antworten reinrutschen)
-                        "no thanks", "thanks", "bye", "byebye", "quit", "exit"
-                    }
-
-                    _norm = _norm_endphrase(user_text)
-
-                    if (_norm in END_EXIT) or any(_norm.endswith(p) for p in END_EXIT):
-                        logger.info("[pi] follow-up: end phrase → back to wakeword")
-                        say(MODEL_BYEBYE)
-                        logger.info("[piper] say %s", MODEL_BYEBYE)
-                        _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
+                    
+                    norm = _normalize_command_text(user_text)
+                    if norm in {"danke", "stop", "nein danke", "tschüss"}:
+                        say(EOC_ACK)
                         break
 
-                    # LLM
                     _conv.add_user(user_text)
                     anim_think_start()
                     try:
-                        reply = llm_chat_once(user_text) or ""
-                    finally:
+                        reply = llm_chat_once(user_text)
+                    except Exception:
                         anim_think_stop()
-                    _conv.add_assistant(reply)
+                        raise
+                    
+                    if reply:
+                        _conv.add_assistant(reply)
+                        logger.info("[pi] assistant (fu): %s", reply)
+                        speak_and_back_to_idle(reply, rec, kw)
+                        turns += 1
+                    anim_think_stop()
+                    last_activity_ts = time.monotonic()
 
-                    # TTS
-                    speak_and_back_to_idle(reply, rec, kw)
-                    logger.info("[tts] done")
-
-            if exit_requested:
-                break
-
-            # regular cooldown and back to the wakeword
-            logger.info("[pi] cooldown %ss & flush ring", os.getenv("COOLDOWN_AFTER_TTS_S", "1.0"))
             _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
 
     except KeyboardInterrupt:
-        logger.info("[pi] interrupted by user.")
+        logger.info("[pi] interrupted.")
         say(MODEL_BYEBYE)
-        _shutdown_event.set()
     finally:
-        if face_tracker_cleanup is not None:
-            try:
-                face_tracker_cleanup()
-            except Exception as exc:
-                logger.debug("Face tracking cleanup failed: %s", exc)
-        try:
-            _restore_neutral_pose_and_close_lid()
-        except Exception as exc:
-            logger.debug("Neutral pose restore during shutdown failed: %s", exc)
+        _shutdown_event.set()
+        if mic_hw: mic_hw.stop()
+        if face_tracker_cleanup: face_tracker_cleanup()
+        _restore_neutral_pose_and_close_lid()
         _cleanup_servo_hardware(servo_setup)
-        try:
-            rec.stop()
-        except Exception:
-            pass
-        try:
-            _led_set_state_safe(CogletState.OFF)
-        except Exception:
-            pass
+        try: rec.stop()
+        except: pass
+        try: _led_set_state_safe(CogletState.OFF)
+        except: pass
 
 if __name__ == "__main__":
     main()

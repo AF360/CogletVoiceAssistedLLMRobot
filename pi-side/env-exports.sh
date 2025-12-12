@@ -3,7 +3,7 @@
 ### --- Endppoints / models ---
 export STT_URL="http://192.168.10.161:5005"
 export STT_RESAMPLE_TO_HZ="16000"
-export STT_LANG="de"
+export STT_LANG="en"
 export OLLAMA_URL="http://192.168.10.161:11434"
 export OLLAMA_MODEL="coglet:latest"
 export PIPER_FIFO="/run/piper/in.jsonl"

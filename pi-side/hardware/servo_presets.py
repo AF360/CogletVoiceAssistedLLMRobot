@@ -11,7 +11,6 @@ License: https://creativecommons.org/licenses/by-nc-sa/4.0/
 Modifications and extensions for Coglet by Andreas Fatum, 2025.
 """
 
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -36,11 +35,6 @@ __all__ = [
 
 TRACKING_SERVO_NAMES: tuple[str, ...] = ("EYL", "EYR", "NPT", "LWH", "RWH")
 PERSONALITY_SERVO_NAMES: tuple[str, ...] = ("NRL", "MOU", "EAL", "EAR")
-# Notes:
-# - LID is controlled exclusively by the EyelidController
-# - NRL is a head-roll servo (head to shoulder) on this Coglet hardware,
-#   not a true yaw servo, and is only used for personality poses.
-
 
 @dataclass(frozen=True)
 class ServoDefinition:
@@ -49,9 +43,7 @@ class ServoDefinition:
     channel: int
     config: ServoConfig
 
-
 # Mapping of PCA9685 channels (SERVO_LAYOUT_V1):
-#
 #   0: EYL (left eye)
 #   1: EYR (right eye)
 #   2: LID (lid/blink)
@@ -67,175 +59,180 @@ SERVO_LAYOUT_V1: Dict[str, ServoDefinition] = {
     "LWH": ServoDefinition(
         channel=8,
         config=ServoConfig(
-            min_angle_deg=30.0,
-            max_angle_deg=120.0,
+            min_angle_deg=-90.0,
+            max_angle_deg=90.0,
             min_pulse_us=600.0,
             max_pulse_us=2400.0,
             max_speed_deg_per_s=100.0,
             max_accel_deg_per_s2=25.0,
             deadzone_deg=1.0,
-            neutral_deg=90.0,
+            neutral_deg=0.0,
             pwm_frequency_hz=50.0,
         ),
     ),
     "RWH": ServoDefinition(
         channel=9,
         config=ServoConfig(
-            min_angle_deg=30.0,
-            max_angle_deg=120.0,
+            min_angle_deg=-90.0,
+            max_angle_deg=90.0,
             min_pulse_us=600.0,
             max_pulse_us=2400.0,
             max_speed_deg_per_s=100.0,
             max_accel_deg_per_s2=25.0,
             deadzone_deg=1.0,
-            neutral_deg=90.0,
+            neutral_deg=0.0,
             pwm_frequency_hz=50.0,
         ),
     ),
     "EYL": ServoDefinition(
         channel=0,
         config=ServoConfig(
-            min_angle_deg=30.0,
-            max_angle_deg=150.0,
+            min_angle_deg=-38.0,
+            max_angle_deg=64.0,
             min_pulse_us=600.0,
             max_pulse_us=2400.0,
             max_speed_deg_per_s=200.0,
             max_accel_deg_per_s2=1000.0,
             deadzone_deg=0.8,
-            neutral_deg=90.0,
+            neutral_deg=20.0,
             pwm_frequency_hz=50.0,
         ),
     ),
     "EYR": ServoDefinition(
         channel=1,
         config=ServoConfig(
-            min_angle_deg=30.0,
-            max_angle_deg=150.0,
+            min_angle_deg=-6.0,
+            max_angle_deg=90.0,
             min_pulse_us=600.0,
             max_pulse_us=2400.0,
             max_speed_deg_per_s=250.0,
             max_accel_deg_per_s2=1000.0,
             deadzone_deg=0.8,
-            neutral_deg=90.0,
+            neutral_deg=40.0,
             pwm_frequency_hz=50.0,
         ),
     ),
     "LID": ServoDefinition(
         channel=2,
         config=ServoConfig(
-            min_angle_deg=30.0,
-            max_angle_deg=160.0,
+            min_angle_deg=-90.0,
+            max_angle_deg=59.0,
             min_pulse_us=600.0,
             max_pulse_us=2400.0,
             max_speed_deg_per_s=50000.0,
             max_accel_deg_per_s2=50000.0,
             deadzone_deg=1.0,
-            neutral_deg=130.0,
+            neutral_deg=-15.0,
             pwm_frequency_hz=50.0,
         ),
     ),
     "NPT": ServoDefinition(
         channel=3,
         config=ServoConfig(
-            min_angle_deg=1.0,
-            max_angle_deg=120.0,
+            min_angle_deg=10.0,
+            max_angle_deg=34.0,
             min_pulse_us=600.0,
             max_pulse_us=2400.0,
             max_speed_deg_per_s=600.0,
             max_accel_deg_per_s2=400.0,
             deadzone_deg=1.0,
-            neutral_deg=50.0,
+            neutral_deg=10.0,
             pwm_frequency_hz=50.0,
         ),
     ),
     "NRL": ServoDefinition(
         channel=4,
         config=ServoConfig(
-            min_angle_deg=30.0,
-            max_angle_deg=150.0,
+            min_angle_deg=-32.0,
+            max_angle_deg=68.0,
             min_pulse_us=600.0,
             max_pulse_us=2400.0,
             max_speed_deg_per_s=600.0,
             max_accel_deg_per_s2=400.0,
             deadzone_deg=1.2,
-            neutral_deg=90.0,
+            neutral_deg=6.0,
             pwm_frequency_hz=50.0,
         ),
     ),
     "MOU": ServoDefinition(
         channel=5,
         config=ServoConfig(
-            min_angle_deg=10.0,
-            max_angle_deg=150.0,
+            min_angle_deg=-31.0,
+            max_angle_deg=88.0,
             min_pulse_us=600.0,
             max_pulse_us=2400.0,
             max_speed_deg_per_s=50000.0,
             max_accel_deg_per_s2=10000.0,
             deadzone_deg=1.0,
-            neutral_deg=170.0,
+            neutral_deg=88.0,
             pwm_frequency_hz=50.0,
         ),
     ),
     "EAL": ServoDefinition(
         channel=6,
         config=ServoConfig(
-            min_angle_deg=60.0,
-            max_angle_deg=150.0,
+            min_angle_deg=-38.0,
+            max_angle_deg=9.0,
             min_pulse_us=600.0,
             max_pulse_us=2400.0,
             max_speed_deg_per_s=250.0,
             max_accel_deg_per_s2=200.0,
             deadzone_deg=1.0,
-            neutral_deg=130.0,
+            neutral_deg=-20.0,
             pwm_frequency_hz=50.0,
         ),
     ),
     "EAR": ServoDefinition(
         channel=7,
         config=ServoConfig(
-            min_angle_deg=30.0,
-            max_angle_deg=120.0,
+            min_angle_deg=-61.0,
+            max_angle_deg=20.0,
             min_pulse_us=600.0,
             max_pulse_us=2400.0,
             max_speed_deg_per_s=500.0,
             max_accel_deg_per_s2=200.0,
             deadzone_deg=1.0,
-            neutral_deg=70.0,
+            neutral_deg=0.0,
             pwm_frequency_hz=50.0,
         ),
     ),
 }
 
+# --- Posen müssen ggf. an die neuen Winkelbereiche angepasst werden ---
+# Die folgenden Posen basieren auf den ursprünglichen Presets und könnten 
+# mit den neuen Limits kollidieren oder optisch nicht mehr passen.
+# Ich habe sie vorsichtig an deine neuen Ranges angenähert, wo offensichtlich nötig.
+
 POSE_CALIBRATE = {
-    "NRL": 90.0,
-    "MOU": 170.0,
-    "LID": 110.0,
-    "EAL": 90.0,
-    "EAR": 90.0,
+    "NRL": 6.0,    # Neutral aus Calibration
+    "MOU": 88.0,   # Neutral aus Calibration
+    "LID": -15.0,  # Neutral aus Calibration
+    "EAL": -20.0,  # Neutral aus Calibration
+    "EAR": 0.0,    # Neutral aus Calibration
 }
 
 POSE_REST = {
-    "NRL": 90.0,
-    "MOU": 170.0,
-    "LID": 130.0,
-    "EAL": 130.0,
-    "EAR": 70.0,
+    "NRL": 6.0,
+    "MOU": 88.0,
+    "LID": -15.0,
+    "EAL": -20.0,
+    "EAR": 0.0,
 }
 
 POSE_THINKING_1 = {
-    "NRL": 130.0,
-    "MOU": 150.0,
-    "LID": 70.0,
-    "EAL": 150.0,
-    "EAR": 120.0,
+    "NRL": 30.0,   # Leicht geneigt (innerhalb -32..68)
+    "MOU": 60.0,   # Leicht geöffnet (innerhalb -31..88)
+    "LID": -40.0,  # Leicht geschlossen (innerhalb -90..59)
+    "EAL": -10.0,  # Leicht bewegt
+    "EAR": 10.0,   # Leicht bewegt
 }
 
 POSE_CURIOUS_2 = {
-    "NRL": 80.0,
-    "MOU": 160.0,
-    "LID": 140.0,
-    "EAL": 60.0,
-    "EAR": 60.0,
+    "NRL": -10.0,  # Leicht geneigt andere Richtung
+    "MOU": 70.0,   
+    "LID": 10.0,   # Weiter offen
+    "EAL": -30.0,  
+    "EAR": -10.0,
 }
 
 POSE_MAP: Dict[str, Mapping[str, float]] = {
@@ -263,14 +260,7 @@ def apply_pose(servos: Mapping[str, Servo], pose: str | Mapping[str, float]) -> 
 
 
 def iter_face_tracking_servos(servos: Mapping[str, Servo]) -> Iterable[Servo]:
-    """Return the servos relevant for face tracking.
-
-    On the current Coglet hardware:
-    - EYL/EYR: eyes
-    - NPT: head nod (pitch)
-    - LWH/RWH: wheels for horizontal rotation
-    - NRL: head roll (head to shoulder) -> personality only, not used for tracking.
-    """
+    """Return the servos relevant for face tracking."""
 
     for key in TRACKING_SERVO_NAMES:
         servo = servos.get(key)

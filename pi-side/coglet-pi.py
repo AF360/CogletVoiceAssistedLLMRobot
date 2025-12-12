@@ -1,23 +1,4 @@
 #!/usr/bin/env python3
-"""
-Coglet Pi side (v0.3.6):
-- Wakeword (openwakeword) -> recording (sounddevice + webrtcvad) -> /stt on PC
-- /api/chat (Ollama, stream=true) -> sentence buffering -> Piper TTS (FIFO to warm server) -> aplay
-- Half-duplex: mic is muted during TTS (blocked for estimated speech duration).
-- Deep Sleep: Enters low power/servo mode after inactivity (no voice interaction).
-- NEW: ReSpeaker Hardware VAD & DOA Integration (xvf_mic).
-- RESTORED: Follow-Up Logic.
-- FIXED: Barge-In self-interruption (flush).
-
-ENV (see /etc/default/coglet-pi):
-  STT_URL, OLLAMA_URL, OLLAMA_MODEL, LLM_KEEP_ALIVE
-  MIC_SR, MIC_DEVICE
-  WAKEWORD_BACKEND, OWW_MODEL, OWW_THRESHOLD
-  PIPER_VOICE, PIPER_VOICE_JSON
-  PIPER_FIFO (/run/piper/in.jsonl)
-  TTS_WPM (e.g., 185), TTS_PUNCT_PAUSE_MS (e.g., 180)
-"""
-
 __version__ = "1.0.3.6"
 
 import os

@@ -1,0 +1,25 @@
+[Unit]
+Description=STT HTTP Server (Faster-Whisper + Flask)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/default/stt-http-server
+WorkingDirectory=/opt/coglet-stt
+ExecStart=/opt/coglet-stt/.venv/bin/python /opt/coglet-stt/stt_http_server.py
+Restart=on-failure
+RestartSec=1
+Environment=PYTHONUNBUFFERED=1
+Environment="PATH=/opt/coglet-stt/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment="XDG_CACHE_HOME=/opt/coglet-stt/.cache"
+Environment="HF_HOME=/opt/coglet-stt/.cache/huggingface"
+Environment="CT2_HOME=/opt/coglet-stt/.cache/ctranslate2"
+# (Optional etwas Härtung, trotz root)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

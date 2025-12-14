@@ -1,0 +1,19 @@
+numpy>=1.26.4
+scipy>=1.12.0
+requests>=2.31.0
+sounddevice>=0.4.6
+soundfile>=0.12.1
+webrtcvad>=2.0.10
+openwakeword>=0.6.0
+paho-mqtt>=1.6.1
+pyserial>=3.5
+pyusb>=1.2.1
+adafruit-blinka>=8.50.0
+adafruit-circuitpython-pca9685>=3.4.11
+adafruit-circuitpython-pixelbuf
+adafruit-circuitpython-neopixel>=6.3.12
+adafruit-circuitpython-led-animation
+Adafruit-Blinka-Raspberry-Pi5-Neopixel
+pytest>=8.2.0
+
+# Piper is external binary; not a Python dependency.

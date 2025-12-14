@@ -1,0 +1,1 @@
+# requirements for the server side of things (Faster Whisper TTS and Ollama LLM with custom local model

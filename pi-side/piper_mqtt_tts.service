@@ -1,0 +1,15 @@
+[Unit]
+Description=Piper TTS (persistent, MQTT control+status)
+After=network-online.target sound.target mosquitto.service
+Wants=network-online.target mosquitto.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/default/piper_mqtt_tts
+ExecStart=/usr/bin/python3 /opt/piper/piper_mqtt_tts.py
+Restart=always
+RestartSec=0.5
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

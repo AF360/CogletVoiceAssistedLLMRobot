@@ -1,0 +1,13 @@
+# /etc/systemd/system/ollama-warmup.service
+[Unit]
+Description=Warm up Ollama model
+After=ollama.service
+Requires=ollama.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ollama-warmup.sh
+TimeoutSec=260
+
+[Install]
+WantedBy=multi-user.target

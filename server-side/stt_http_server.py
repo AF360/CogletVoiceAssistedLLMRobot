@@ -136,10 +136,10 @@ def stt():
 
         return jsonify(text=text, language=info.language, time_ms=dt_ms)
 
-    except Exception as e:
-        # Return errors as JSON and log the stack trace
-        traceback.print_exc()
-        return jsonify(error=str(e)), 500
+    except Exception:
+        # Log full traceback server-side, but don't expose internals to clients.
+        app.logger.exception("Unhandled exception in /transcribe")
+        return jsonify(error="Internal server error"), 500
 
 
 # ----------------------------

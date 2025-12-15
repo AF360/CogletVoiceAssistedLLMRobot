@@ -34,7 +34,7 @@ __all__ = [
 ]
 
 TRACKING_SERVO_NAMES: tuple[str, ...] = ("EYL", "EYR", "NPT", "LWH", "RWH")
-PERSONALITY_SERVO_NAMES: tuple[str, ...] = ("NRL", "MOU", "EAL", "EAR")
+PERSONALITY_SERVO_NAMES: tuple[str, ...] = ("NRL", "MOU", "EAL", "EAR", "NPT")
 
 @dataclass(frozen=True)
 class ServoDefinition:

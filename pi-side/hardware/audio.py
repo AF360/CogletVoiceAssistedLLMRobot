@@ -178,6 +178,10 @@ class Recorder:
         rms = float(np.sqrt(np.mean(np.square(x)) + 1e-12))
         return 20.0 * np.log10(rms + 1e-12)
 
+    def get_queue_size(self) -> int:
+        """Returns the number of items in the queue (approximate)."""
+        return self._q.qsize()
+
     def read(self, n_samples: int) -> np.ndarray:
         """Read n_samples as float32 [-1..1] (for WakeWord)."""
         need_bytes = int(n_samples) * 2
@@ -354,11 +358,23 @@ class Wakeword:
 
     def reset_after_tts(self):
         """Suppress detection briefly after TTS to avoid self-triggering."""
+        self.reset()
+        self.armed = False
+        self.suppress_until = time.monotonic() + self.after_tts_s
+
+    def reset(self):
+        """Resets the internal buffer and state of the WakeWord engine."""
         self.ring.fill(0.0)
         self._below_consec = 0
         self._was_above = False
-        self.armed = False
-        self.suppress_until = time.monotonic() + self.after_tts_s
+        self.armed = True
+        self.suppress_until = 0.0
+        # Reset OpenWakeWord model state if supported
+        if hasattr(self.detector, "reset") and callable(self.detector.reset):
+            try:
+                self.detector.reset()
+            except Exception:
+                pass
 
     def check_once(self, recorder: Recorder) -> bool:
         """Liest einen Chunk und prüft auf Wakeword (Non-blocking für Barge-In)."""

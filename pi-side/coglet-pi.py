@@ -1,5 +1,24 @@
 #!/usr/bin/env python3
-__version__ = "1.0.3.6"
+"""
+Coglet Pi side (v1.0.3.8):
+- Wakeword (openwakeword) -> recording (sounddevice + webrtcvad) -> /stt on PC
+- /api/chat (Ollama, stream=true) -> sentence buffering -> Piper TTS (FIFO to warm server) -> aplay
+- Half-duplex: mic is muted during TTS (blocked for estimated speech duration).
+- Deep Sleep: Enters low power/servo mode after inactivity (no voice interaction).
+- NEW: ReSpeaker Hardware VAD & DOA Integration (xvf_mic).
+- RESTORED: Follow-Up Logic.
+- FIXED: Barge-In self-interruption (flush).
+
+ENV (see /etc/default/coglet-pi):
+  STT_URL, OLLAMA_URL, OLLAMA_MODEL, LLM_KEEP_ALIVE
+  MIC_SR, MIC_DEVICE
+  WAKEWORD_BACKEND, OWW_MODEL, OWW_THRESHOLD
+  PIPER_VOICE, PIPER_VOICE_JSON
+  PIPER_FIFO (/run/piper/in.jsonl)
+  TTS_WPM (e.g., 185), TTS_PUNCT_PAUSE_MS (e.g., 180)
+"""
+
+__version__ = "1.0.3.8"
 
 import os
 import sys
@@ -116,7 +135,6 @@ def _parse_bool(value: Optional[str], default: bool) -> bool:
         return default
     return normalized in {"1", "true", "yes", "on"}
 
-
 DEMOMODE         = _parse_bool(os.getenv("DEMOMODE"), False)
 BARGE_IN         = _parse_bool(os.getenv("BARGE_IN"), True)
 TTS_MODE         = os.getenv("TTS_MODE", "mqtt")
@@ -124,18 +142,19 @@ STT_URL          = os.getenv("STT_URL", "http://192.168.10.161:5005")
 OLLAMA_URL       = os.getenv("OLLAMA_URL", "http://192.168.10.161:11434")
 OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL", "coglet:latest")
 LLM_KEEP_ALIVE   = os.getenv("LLM_KEEP_ALIVE", "30m")
-MODEL_CONFIRM    = os.getenv("MODEL_CONFIRM", "Yes?")
-MODEL_READY      = os.getenv("MODEL_READY", "Alle subsystens ready. Awaiting the wakeword.")
-MODEL_BYEBYE     = os.getenv("MODEL_BYEBYE", "See ya!")
-EOC_ACK          = os.getenv("EOC_ACK", "OK. Waiting for next wakeword.")
-OWW_MODEL        = os.getenv("OWW_MODEL", "/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/coglet.onnx")
+MODEL_CONFIRM    = os.getenv("MODEL_CONFIRM", "Ja?")
+MODEL_READY      = os.getenv("MODEL_READY", "Alle Subsysteme bereit. Ich erwarte das Wähkwörd.")
+MODEL_BYEBYE     = os.getenv("MODEL_BYEBYE", "Tschüssen!")
+EOC_ACK          = os.getenv("EOC_ACK", "OK. Ich warte aufs neue Wähkwörd.")
+OWW_MODEL        = os.getenv("OWW_MODEL", "/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/scarlett.onnx")
 OWW_THRESHOLD    = float(os.getenv("OWW_THRESHOLD", "0.35"))
 OWW_DEBUG        = int(os.getenv("OWW_DEBUG", "0"))
 MIC_SR           = int(os.getenv("MIC_SR", "16000"))
 VAD_AGGR         = int(os.getenv("VAD_AGGRESSIVENESS", "2"))
 WAKEWORD_BACKEND = os.getenv("WAKEWORD_BACKEND", "oww")
-PIPER_VOICE      = os.getenv("PIPER_VOICE", "/opt/piper/voices/en_US-ryan-high.onnx")
-PIPER_VOICE_JSON = os.getenv("PIPER_VOICE_JSON", "/opt/piper/voices/en_US-ryan-high.onnx.json")
+
+PIPER_VOICE      = os.getenv("PIPER_VOICE", "/opt/piper/voices/de_DE-thorsten-high.onnx")
+PIPER_VOICE_JSON = os.getenv("PIPER_VOICE_JSON", "/opt/piper/voices/de_DE-thorsten-high.onnx.json")
 PIPER_FIFO       = os.getenv("PIPER_FIFO", "/run/piper/in.jsonl")
 PIPER_MQTT_HOST  = os.getenv("PIPER_MQTT_HOST", "127.0.0.1")
 PIPER_MQTT_PORT  = int(os.getenv("PIPER_MQTT_PORT", "1883"))
@@ -1699,18 +1718,38 @@ def main():
                         pass
 
                 # 2. Audio Check
-                chunks = 0
-                while chunks < 5:
+                # NEW: Aggressive processing if buffer grows (catch-up)
+                processed_chunks = 0
+                max_chunks = 20 # Limit to prevent infinite loop, but high enough to clear ~3s buffer
+                
+                # We continue processing as long as:
+                # - buffer has data
+                # - AND (we haven't processed enough chunks OR buffer is still large)
+                # This ensures we drain the queue down to a small size.
+                while True:
                     if kw.check_once(rec):
                         wake_detected = True
                         break
-                    if rec._q.qsize() == 0:
+                    
+                    processed_chunks += 1
+                    q_size = rec.get_queue_size() if hasattr(rec, "get_queue_size") else rec._q.qsize()
+                    
+                    # Break conditions:
+                    # 1. Empty buffer
+                    if q_size == 0:
                         break
-                    chunks += 1
-                
+                    # 2. Safety limit reached (approx 3.2s of audio)
+                    if processed_chunks >= max_chunks:
+                        logger.debug("[audio] Wakeword loop lagging? Processed %d chunks, q_size=%d", processed_chunks, q_size)
+                        break
+                    # 3. Buffer is small enough (real-time), we can sleep a bit
+                    if processed_chunks > 1 and q_size < 2:
+                        break
+ 
                 if wake_detected: break
 
                 # 3. Deep Sleep Logic
+                # Enter Deep Sleep
                 now = time.monotonic()
                 if not is_deep_sleep and (now - last_activity_ts > DEEP_SLEEP_TIMEOUT_S):
                     logger.info("[pi] Entering Deep Sleep")
@@ -1718,29 +1757,53 @@ def main():
                     if face_tracker: face_tracker.stop()
                     _stop_idle_animation()
                     _eyelids_set_mode("closed")
+                    
                     pitch = _get_anim_servo("NPT")
                     if pitch:
-                        breath_center_pitch = min(pitch.config.max_angle_deg, pitch.config.neutral_deg + 30.0)
+                        # FIX: Kleinerer Offset (12 statt 30), damit wir im Limit (10-34) bleiben
+                        # Ziel-Mitte: ca. 22 Grad -> Schwingt dann 16..28
+                        breath_center_pitch = min(pitch.config.max_angle_deg - 6.0, pitch.config.neutral_deg + 12.0)
                         pitch.move_to(breath_center_pitch)
+                    
                     rec.flush()
-
+                    if hasattr(kw, "reset"): kw.reset()
+              
+                # Deep Sleep Animation (Loop)
                 if is_deep_sleep:
                     phase = math.sin(now * 1.5)
+                    
+                    # --- 1. Servo Nicken (Sanftes Atmen) ---
                     pitch = _get_anim_servo("NPT")
                     if pitch:
-                        pitch.move_to(breath_center_pitch + (phase * 3.0))
+                        # Schwingt +/- 6 Grad um die Mitte
+                        target = breath_center_pitch + (phase * 6.0)
+                        pitch.move_to(target)
+                        pitch.update(0.01) # Physik-Update ausführen!
                     
+                    # --- 2. LED Pulsieren (Farbstabilisiert) ---
                     if _status_led:
                         norm = (phase + 1.0) / 2.0
-                        brightness = 0.05 + (norm * 0.45)
-                        r, g = int(255 * brightness), int(180 * brightness)
+                        # FIX: Mindesthelligkeit auf 0.02 erhöht gegen Rotschift
+                        brightness = 0.02 + (norm * 0.15)
+                        
+                        r_val = int(255 * brightness)
+                        g_val = int(180 * brightness)
+                        
+                        # FIX: Im sehr dunklen Bereich Grün erzwingen für Gelb-Eindruck
+                        if r_val > 0 and g_val == 0: 
+                            g_val = 1
+                        # Optional: Bei < 5 Helligkeit Verhältnis 1:1 machen für sauberes Gelb
+                        if r_val < 5:
+                            g_val = r_val
+
                         try:
-                            if hasattr(_status_led, "pixels"):
-                                _status_led.pixels.fill((r, g, 0))
-                                _status_led.pixels.show()
-                            elif hasattr(_status_led, "set_color"):
-                                _status_led.set_color(r, g, 0)
-                        except: pass
+                            if hasattr(_status_led, "_set_rgb"):
+                                _status_led._set_rgb(r_val, g_val, 0)
+                            elif hasattr(_status_led, "_pixels") and _status_led._pixels:
+                                _status_led._pixels.fill((r_val, g_val, 0))
+                                _status_led._pixels.show()
+                        except Exception: 
+                            pass              
                 
                 time.sleep(0.01)
 
@@ -1750,6 +1813,9 @@ def main():
             if is_deep_sleep:
                 logger.info("[pi] Waking up!")
                 is_deep_sleep = False
+                # Reset Wakeword on wake up to ensure fresh state
+                if hasattr(kw, "reset"): kw.reset()
+                rec.flush()
                 _apply_pose_safe(_personality_neutral_targets())
                 _eyelids_set_mode("auto")
                 _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
@@ -1886,6 +1952,9 @@ def main():
                     last_activity_ts = time.monotonic()
 
             _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
+            # After Follow-Up session, ensure we start fresh
+            rec.flush()
+            if hasattr(kw, "reset"): kw.reset()
 
     except KeyboardInterrupt:
         logger.info("[pi] interrupted.")

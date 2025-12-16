@@ -191,7 +191,7 @@ TTS_PUNCT_MS     = int(os.getenv("TTS_PUNCT_PAUSE_MS", "180"))
 SENTENCE_RE      = re.compile(r'[.!?…]\s($|\S)')  
 
 FACE_TRACKING_ENABLED = _parse_bool(os.getenv("FACE_TRACKING_ENABLED"), True)
-DEEP_SLEEP_TIMEOUT_S = 240.0  # 4 minutes timeout for Deep Sleep
+DEEP_SLEEP_TIMEOUT_S = 300.0  # 5 minutes timeout for Deep Sleep
 
 def _parse_float_env(name: str, default: float, *, logger: logging.Logger) -> float:
     value = os.getenv(name)

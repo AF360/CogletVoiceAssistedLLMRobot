@@ -18,7 +18,6 @@ export SPEAKER_DEVICE="spk"
 export APLAY_FORMAT="S16_LE"
 export MODEL_CONFIRM="Yes?"
 export MODEL_READY="All subsystems running. Listening for the wakeword."
-### For now the wakeword is "Scarlett", we need to train a "Coglet"-wakeword
 export MODEL_BYEBYE="See ya!"
 
 ### --- Demo mode ---
@@ -32,7 +31,7 @@ export MIC_AUTO_GAIN="0"
 export MIC_TARGET_DBFS="-18"
 export MIC_MAX_GAIN_DB="35"
 export SPEAKER_DEVICE="spk"  # with dmix use "spk"
-export BARGE_IN="1"
+export BARGE_IN="0"
 
 ### --- VAD / Endpointing (WebRTC) ---
 export VAD_AGGR="2"
@@ -69,12 +68,19 @@ export LLM_TEMPERATURE=0.3
 export LLM_NUM_CTX=8192             # use 4096 on weaker systems
 export LLM_KEEP_ALIVE="30m"
 
-### --- Coglet EyeController-Board communication, will be required later
-export COGLET_SERIAL_PORT=/dev/ttyACM0
-export COGLET_BAUDRATE=115200
+### --- Email Sender ---
+export EMAIL_TO="your.recipient@example.com"
+export SMTP_HOST="smtp.gmail.com"
+export SMTP_PORT="587"
+export SMTP_FROM="your.senderadress@gmail.com"
+export SMTP_STARTTLS="1"
+export SMTP_SSL="0"
+export SMTP_USERNAME="your.senderadress@gmail.com"
+export SMTP_PASSWORD="your-email-app-password"
 
-# Piper Server Environment
+# Piper and Coglet Loglevel
 LOG_LEVEL="DEBUG"
+LOGLEVEL="DEBUG"
 
 ### --- Piper via MQTT ---
 export TTS_MODE="mqtt"
@@ -90,12 +96,19 @@ export PIPER_MQTT_TLS="0"
 ### --- Status LED ---
 export ENABLE_LED="1"
 
-### --- end of conversation mode ---
-export EOC_ACK="OK. Waiting for next wakeword"
+### --- end of conversation modes ---
+export EOC_ACK="OK. Waiting for next wakeword."
+export AMS_ACK="Waiting for next wakeword."
+export DS_ACK="I'm going to nap. Use the wakeword to wake me."
+
+### Timeout for deep sleep
+export DEEP_SLEEP_TIMEOUT_S="300.0"
 
 ### --- Face Tracking (Grove Vision AI + PCA9685-Servos) ---
-# Master switch
+# Master switch for Tracking and Patrol-Mode
 export FACE_TRACKING_ENABLED="1"
+export FACE_TRACKING_PATROL_ENABLED="1"
+export FACE_TRACKING_PATROL_INTERVAL_S="30.0"
 
 # Grove Vision AI UART
 export FACE_TRACKING_SERIAL_PORT="/dev/ttyACM0"

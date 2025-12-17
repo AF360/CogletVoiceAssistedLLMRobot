@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Coglet Pi side (v1.0.3.8):
+Coglet Pi side (v1.0.4.5):
 - Wakeword (openwakeword) -> recording (sounddevice + webrtcvad) -> /stt on PC
 - /api/chat (Ollama, stream=true) -> sentence buffering -> Piper TTS (FIFO to warm server) -> aplay
 - Half-duplex: mic is muted during TTS (blocked for estimated speech duration).
@@ -18,7 +18,7 @@ ENV (see /etc/default/coglet-pi):
   TTS_WPM (e.g., 185), TTS_PUNCT_PAUSE_MS (e.g., 180)
 """
 
-__version__ = "1.0.3.8"
+__version__ = "1.0.4.5"
 
 import os
 import sys
@@ -56,6 +56,12 @@ from startup_checks import (
     check_piper_mqtt_connectivity,
     check_stt_health,
 )
+
+# NEW: Email Sender
+try:
+    import email_sender
+except ImportError:
+    email_sender = None
 
 # --- Hardware / Audio Imports ---
 from hardware.pca9685_servo import Servo, ServoConfig
@@ -145,14 +151,15 @@ LLM_KEEP_ALIVE   = os.getenv("LLM_KEEP_ALIVE", "30m")
 MODEL_CONFIRM    = os.getenv("MODEL_CONFIRM", "Ja?")
 MODEL_READY      = os.getenv("MODEL_READY", "Alle Subsysteme bereit. Ich erwarte das Wähkwörd.")
 MODEL_BYEBYE     = os.getenv("MODEL_BYEBYE", "Tschüssen!")
-EOC_ACK          = os.getenv("EOC_ACK", "OK. Ich warte aufs neue Wähkwörd.")
-OWW_MODEL        = os.getenv("OWW_MODEL", "/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/scarlett.onnx")
+EOC_ACK          = os.getenv("EOC_ACK", "Alles klar. Ich warte aufs neue Wähkwörd.")
+AMS_ACK          = os.getenv("AMS_ACK", "Ich warte nun wieder auf das Wähkwörd.")
+DS_ACK           = os.getenv("DS_ACK", "Ich mache ein Nickerchen. Wecke mich mit dem Wähkwört.")
+OWW_MODEL        = os.getenv("OWW_MODEL", "/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/wheatley.onnx")
 OWW_THRESHOLD    = float(os.getenv("OWW_THRESHOLD", "0.35"))
 OWW_DEBUG        = int(os.getenv("OWW_DEBUG", "0"))
 MIC_SR           = int(os.getenv("MIC_SR", "16000"))
 VAD_AGGR         = int(os.getenv("VAD_AGGRESSIVENESS", "2"))
 WAKEWORD_BACKEND = os.getenv("WAKEWORD_BACKEND", "oww")
-
 PIPER_VOICE      = os.getenv("PIPER_VOICE", "/opt/piper/voices/de_DE-thorsten-high.onnx")
 PIPER_VOICE_JSON = os.getenv("PIPER_VOICE_JSON", "/opt/piper/voices/de_DE-thorsten-high.onnx.json")
 PIPER_FIFO       = os.getenv("PIPER_FIFO", "/run/piper/in.jsonl")
@@ -191,7 +198,8 @@ TTS_PUNCT_MS     = int(os.getenv("TTS_PUNCT_PAUSE_MS", "180"))
 SENTENCE_RE      = re.compile(r'[.!?…]\s($|\S)')  
 
 FACE_TRACKING_ENABLED = _parse_bool(os.getenv("FACE_TRACKING_ENABLED"), True)
-DEEP_SLEEP_TIMEOUT_S = 300.0  # 5 minutes timeout for Deep Sleep
+FACE_TRACKING_PATROL_INTERVAL_S = float(os.getenv("FACE_TRACKING_TIMEOUT_S", "30.0"))
+DEEP_SLEEP_TIMEOUT_S = float(os.getenv("DEEP_SLEEP_TIMEOUT_S", "300.0"))
 
 def _parse_float_env(name: str, default: float, *, logger: logging.Logger) -> float:
     value = os.getenv(name)
@@ -286,6 +294,8 @@ def _build_face_tracking_config(logger: logging.Logger) -> "FaceTrackingConfig":
         wheel_output_min_deg=_float("FACE_TRACKING_WHEEL_OUTPUT_MIN_DEG", base_cfg.wheel_output_min_deg),
         wheel_output_max_deg=_float("FACE_TRACKING_WHEEL_OUTPUT_MAX_DEG", base_cfg.wheel_output_max_deg),
         wheel_power=_float("FACE_TRACKING_WHEEL_POWER", base_cfg.wheel_power),
+        patrol_enabled=_parse_bool(os.getenv("FACE_TRACKING_PATROL_ENABLED"), base_cfg.patrol_enabled),
+        patrol_interval_s=_float("FACE_TRACKING_PATROL_INTERVAL_S", base_cfg.patrol_interval_s),
     )
 
 
@@ -1033,6 +1043,147 @@ def _is_program_exit_command(text: str) -> bool:
     exits = {"programm ende", "programmende", "programm-ende"}
     return normalized in exits or collapsed in exits
 
+
+def _is_email_request(text: str) -> bool:
+    normalized = _normalize_command_text(text)
+    
+    # NEW: Bilingual support (DE/EN) & tolerant regex patterns
+    # 1. Pattern: Prepositions (via, per, by)
+    # DE: "per Mail", "als E-Mail", "via Nachricht"
+    # EN: "by mail", "via email", "as an email"
+    # Searching for: Preposition + (optional Article/Prep) + Object
+    if re.search(r"\b(per|als|via|by|as|in)\s+(an\s+|a\s+|an\s+)?(e-?mail|mail|nachricht|message)\b", normalized):
+        logger.info(f"[intent] Detected Email intent (Preposition): {text}")
+        return True
+
+    # 2. Pattern: Explicit Verb "mail" / "email"
+    # DE: "maile mir", "email an uns"
+    # EN: "email me", "mail it to"
+    # Suffixes: DE (e, en, st, t), EN (s, ing, ed) or empty
+    if re.search(r"\b(e-?mail|mail)(e|en|st|t|s|ing|ed)?\s+(mir|uns|an|me|us|to)\b", normalized):
+        logger.info(f"[intent] Detected Email intent (Verb): {text}")
+        return True
+
+    # 3. Pattern: Classic Verb + Object (Keywords)
+    words = set(normalized.split())
+    strong_verbs = {
+        # DE
+        "schick", "schicke", "schicken", "schickt", 
+        "sende", "senden", "sendet", 
+        "versende", "versenden", "verschicken", "verschickt",
+        "schreib", "schreibe", "erstell", "erstelle",
+        # EN
+        "send", "sends", "sending", "sent",
+        "write", "writing", 
+        "compose", "create", 
+        "forward", "dispatch"
+    }
+    objects = {
+        # DE
+        "mail", "email", "e-mail", "e-mails", "emails", "nachricht",
+        # EN
+        "message", "copy", "letter"
+    }
+    
+    if not words.isdisjoint(strong_verbs) and not words.isdisjoint(objects):
+        logger.info(f"[intent] Detected Email intent (Verb+Obj): {text}")
+        return True
+
+    return False
+
+def _handle_email_request(user_text: str, rec, kw) -> bool:
+    """
+    Handles an email generation request via a one-shot LLM call.
+    Uses a specific system prompt and increased token limit to ensure
+    verbose and formatted email content.
+    """
+    if email_sender is None:
+        logger.error("[email] Module not imported/available")
+        return False
+
+    email_to = os.getenv("EMAIL_TO")
+    if not email_to:
+        logger.warning("[email] EMAIL_TO not configured in environment")
+        speak_and_back_to_idle("Keine Empfängeradresse konfiguriert.", rec, kw)
+        return True
+
+    logger.info("[email] Handling request: %r", user_text)
+
+    # 1. System Prompt: Force a "Professional Editor" persona.
+    system_prompt = (
+        "Du bist ein professioneller, freundlicher Redakteur. "
+        "Deine Aufgabe ist es, ausführliche, hilfreiche und schön formatierte E-Mails zu schreiben. "
+        "Nutze HTML zur Strukturierung: <h2> für Überschriften, <ul>/<li> für Listen, <b> für Wichtiges und <p> für Absätze. "
+        "Nutze Emojis 🌟, wo es passend ist. "
+        "Antworte NICHT kurz, sondern detailliert und vollständig."
+    )
+
+    # 2. User Prompt
+    user_prompt = (
+        f"Benutzeranfrage: '{user_text}'.\n\n"
+        "Generiere eine E-Mail mit:\n"
+        "1. Einem passenden Betreff (Subject: ...)\n"
+        "2. Einem Trenner (---)\n"
+        "3. Dem ausführlichen HTML-Inhalt (ohne <html>/<body> Tags, nur der Content).\n"
+        "Beispiel-Format:\n"
+        "Subject: Leckeres Rezept für Dich 🥗\n"
+        "---\n"
+        "<h2>Hier ist dein Rezept</h2><p>...</p>"
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    anim_think_start()
+    try:
+        # Request generation with high temperature (creativity) AND high token limit (length)
+        # num_predict=2048 allows for very long recipes.
+        response = _ollama_chat(messages, temperature=0.6, num_predict=4096, timeout=600.0)
+    except Exception as e:
+        logger.error("[email] LLM generation error: %s", e)
+        anim_think_stop()
+        speak_and_back_to_idle("Fehler bei der Generierung.", rec, kw)
+        return True
+
+    anim_think_stop()
+
+    # Parse the response (Header vs Body)
+    subject = "Info von Wheatley"
+    body = response
+
+    if "Subject:" in response and "---" in response:
+        try:
+            parts = response.split("---", 1)
+            header_part = parts[0].strip()
+            body_part = parts[1].strip()
+
+            # Extract Subject
+            m = re.search(r"Subject:\s*(.*)", header_part, re.IGNORECASE)
+            if m:
+                subject = m.group(1).strip()
+
+            body = body_part
+        except Exception as e:
+            logger.warning("[email] Parsing failed, sending raw content: %s", e)
+    
+    # Fallback subject enhancement
+    if subject == "Info von Wheatley":
+        subject = f"Info zu: {user_text[:20]}..."
+
+    # Send the email
+    try:
+        email_sender.send_email_smtp(email_to, subject, body)
+        logger.info("[email] Sent successfully to %s", email_to)
+        speak_and_back_to_idle("Alles klar, ich habe dir eine ausführliche E-Mail geschickt und warte nun wieder auf das Wähkwört", rec, kw)
+    except Exception as e:
+        logger.error("[email] SMTP sending failed: %s", e)
+        speak_and_back_to_idle("Ich konnte die E-Mail leider nicht senden.", rec, kw)
+
+    return True
+
+
 def _fifo_write_nonblock(path: str, line: str) -> bool:
     try:
         st = os.stat(path)
@@ -1390,6 +1541,14 @@ def chat_stream(prompt: str):
             if chunk: yield chunk
 
 def _flush_input_buffers(recorder):
+    """Best-effort helper to purge pending audio frames.
+    recorder.flush() is the direct, class-specific clear operation. Some
+    implementations (like hardware.audio.Audio) also expose a dedicated
+    flush_input_buffers() that may clear device-level buffers beyond the
+    Python queue. This helper prefers that method when available and then
+    falls back to recorder.flush() or a manual queue drain if neither
+    exists, so call sites can be agnostic about the concrete recorder type.
+    """
     if hasattr(recorder, "flush_input_buffers") and callable(recorder.flush_input_buffers):
         try: recorder.flush_input_buffers(); return
         except Exception: pass
@@ -1405,17 +1564,27 @@ def _flush_input_buffers(recorder):
 
 def speak_and_back_to_idle(text: str, recorder, kw):
     if not BARGE_IN:
+        set_global_listen_state(False)
         recorder.set_listen(False)
         recorder.flush()
-    say(text, recorder=recorder, wakeword=kw)
-    if not BARGE_IN:
-        post_cd = float(os.getenv("COOLDOWN_AFTER_TTS_S", "0.5"))
-        if post_cd > 0: time.sleep(post_cd)
-        recorder.flush()
-        kw.reset_after_tts()
-        recorder.set_listen(True)
-    else:
-        kw.reset_after_tts()
+
+    try:
+        say(text, recorder=recorder, wakeword=kw)
+    finally:
+        if not BARGE_IN:
+            set_global_listen_state(False)
+            # Keep input fully muted during the cooldown to avoid TTS tail pickup.
+            post_cd = float(os.getenv("COOLDOWN_AFTER_TTS_S", "0.5"))
+            if post_cd > 0:
+                time.sleep(post_cd)
+
+            # Flush any queued frames and re-arm wakeword after suppression window.
+            _flush_input_buffers(recorder)
+            kw.reset_after_tts()
+            set_global_listen_state(True)
+            recorder.set_listen(True)
+        else:
+            kw.reset_after_tts()
 
 def chat_once(user_text: str) -> str:
     logger.info("[llm] request → %r", user_text)
@@ -1587,21 +1756,57 @@ def llm_chat_once(user_text: str) -> str:
         except Exception: pass
     return _fallback_chat_once(user_text).strip()
 
-def _ollama_chat(messages: list[dict]) -> str:
-    url = f"{os.getenv('OLLAMA_URL','http://192.168.10.161:11434').rstrip('/')}/api/chat"
+
+def _ollama_chat(messages: list[dict], model: str | None = None, temperature: float | None = None, num_predict: int | None = None, timeout: float = 120.0) -> str:
+    """
+    Sends a chat request to the Ollama API.
+    
+    Args:
+        messages: List of conversation messages.
+        model: Optional model override. Defaults to env OLLAMA_MODEL.
+        temperature: Optional temperature override. Defaults to env LLM_TEMPERATURE.
+        num_predict: Optional max tokens to generate. Defaults to Ollama default (often 128).
+        timeout: Request timeout in seconds. Defaults to 120.0.
+    """
+    base_url = os.getenv("OLLAMA_URL", "http://192.168.10.161:11434").rstrip('/')
+    url = f"{base_url}/api/chat"
+    
+    # Use provided model or fall back to the default one configured in ENV
+    used_model = model if model else os.getenv("OLLAMA_MODEL", "coglet:latest")
+    
+    # Determine temperature
+    if temperature is not None:
+        temp_val = temperature
+    else:
+        temp_val = float(os.getenv("LLM_TEMPERATURE", "0.3"))
+
+    options = {
+        "temperature": temp_val,
+        "num_ctx": int(os.getenv("LLM_NUM_CTX", "8192")),
+    }
+
+    # Pass num_predict if requested (crucial for long emails!)
+    if num_predict is not None:
+        options["num_predict"] = num_predict
+
     payload = {
-        "model": os.getenv("OLLAMA_MODEL", "coglet:latest"),
+        "model": used_model,
         "messages": messages,
         "stream": False,
-        "options": {
-            "temperature": float(os.getenv("LLM_TEMPERATURE", "0.3")),
-            "num_ctx": int(os.getenv("LLM_NUM_CTX", "8192")),
-        },
+        "options": options,
         "keep_alive": LLM_KEEP_ALIVE,
     }
-    r = requests.post(url, json=payload, timeout=120)
-    r.raise_for_status()
-    return (r.json().get("message", {}) or {}).get("content", "") or ""
+
+    try:
+        # Use the flexible timeout here
+        r = requests.post(url, json=payload, timeout=timeout)
+        r.raise_for_status()
+        return (r.json().get("message", {}) or {}).get("content", "") or ""
+    except Exception as e:
+        logger.error("[llm] Request failed: %s", e)
+        # Propagate exception to allow caller handling
+        raise e
+      
 
 def _pcm16_to_wav_bytes(pcm_bytes: bytes, sr_in: int, sr_out: int | None = None) -> bytes:
     if sr_out is None or sr_out == sr_in:
@@ -1710,11 +1915,11 @@ def main():
             wake_detected = False
             while not wake_detected and not _shutdown_event.is_set():
                 # 1. Hardware VAD/DOA Check
-                if mic_hw and not is_deep_sleep:
+                if mic_hw:
                     is_speaking, angle = mic_hw.get_status()
                     if is_speaking:
-                        # Hier könnten wir den Kopf drehen!
-                        # logger.debug(f"[mic] Speech detected at {angle}°")
+                        # Turn the head towards the speaker here!
+                        logger.debug(f"[mic] Speech detected at {angle}°")
                         pass
 
                 # 2. Audio Check
@@ -1754,45 +1959,28 @@ def main():
                 if not is_deep_sleep and (now - last_activity_ts > DEEP_SLEEP_TIMEOUT_S):
                     logger.info("[pi] Entering Deep Sleep")
                     is_deep_sleep = True
+                    say (DS_ACK)
                     if face_tracker: face_tracker.stop()
                     _stop_idle_animation()
-                    _eyelids_set_mode("closed")
-                    
-                    pitch = _get_anim_servo("NPT")
-                    if pitch:
-                        # FIX: Kleinerer Offset (12 statt 30), damit wir im Limit (10-34) bleiben
-                        # Ziel-Mitte: ca. 22 Grad -> Schwingt dann 16..28
-                        breath_center_pitch = min(pitch.config.max_angle_deg - 6.0, pitch.config.neutral_deg + 12.0)
-                        pitch.move_to(breath_center_pitch)
-                    
+                    _eyelids_set_mode("closed")               
                     rec.flush()
-                    if hasattr(kw, "reset"): kw.reset()
-              
+                                  
                 # Deep Sleep Animation (Loop)
                 if is_deep_sleep:
                     phase = math.sin(now * 1.5)
-                    
-                    # --- 1. Servo Nicken (Sanftes Atmen) ---
-                    pitch = _get_anim_servo("NPT")
-                    if pitch:
-                        # Schwingt +/- 6 Grad um die Mitte
-                        target = breath_center_pitch + (phase * 6.0)
-                        pitch.move_to(target)
-                        pitch.update(0.01) # Physik-Update ausführen!
-                    
-                    # --- 2. LED Pulsieren (Farbstabilisiert) ---
+                                  
+                    # --- 1. LED Pulse (Color stabilized) ---
                     if _status_led:
                         norm = (phase + 1.0) / 2.0
-                        # FIX: Mindesthelligkeit auf 0.02 erhöht gegen Rotschift
+                        # FIX: Min brightness increased to 0.02 to prevent red shift at low levels
                         brightness = 0.02 + (norm * 0.15)
                         
                         r_val = int(255 * brightness)
                         g_val = int(180 * brightness)
                         
-                        # FIX: Im sehr dunklen Bereich Grün erzwingen für Gelb-Eindruck
+                        # FIX: Force green in very dark range for better yellow impression
                         if r_val > 0 and g_val == 0: 
                             g_val = 1
-                        # Optional: Bei < 5 Helligkeit Verhältnis 1:1 machen für sauberes Gelb
                         if r_val < 5:
                             g_val = r_val
 
@@ -1829,25 +2017,36 @@ def main():
             _stop_idle_animation()
             
             logger.info("[pi] wakeword detected")
+            # --- Guard: Don't record our own confirm prompt as user input ---
+            # half_duplex_tts() does NOT globally mute when BARGE_IN=1
+            # (see half_duplex_tts in this file). So we always mute locally here.
+            rec.set_listen(False)
+            rec.flush()
             say(MODEL_CONFIRM)
+
+            # Let speaker tail decay while we are still muted, then start clean.
+            post_cd = float(os.getenv("COOLDOWN_AFTER_TTS_S", "0.5"))
+            if post_cd > 0:
+                time.sleep(post_cd)
+            rec.flush()
+            rec.set_listen(True)
+          
             if os.getenv("LLM_RESET_ON_WAKE", "1") in ("1", "true"):
                 _conv.reset()
 
-            # ===> NEU: Hardware-Poll PAUSIEREN für saubere Aufnahme <===
-            if mic_hw: 
-                mic_hw.set_paused(True)
-          
             # Record User
             endpoint = SpeechEndpoint(sr=rec.sr, vad_aggr=rec.vad_aggr)
             anim_listen_start()
             try:
+                # ===> NEU: Hardware-Poll PAUSIEREN für saubere Aufnahme <===
+                if mic_hw:
+                    mic_hw.set_paused(True)
                 pcm, dur = endpoint.record(rec)
             finally:
+                # ===> NEU: Hardware-Poll wieder AKTIVIEREN <===
+                if mic_hw:
+                    mic_hw.set_paused(False)
                 anim_listen_stop()
-
-            # ===> NEU: Hardware-Poll wieder AKTIVIEREN <===
-            if mic_hw: 
-                mic_hw.set_paused(False)
 
             if len(pcm) < int(0.2 * rec.sr) * 2:
                 logger.info("[pi] silence; back to idle")
@@ -1866,6 +2065,13 @@ def main():
             if _is_program_exit_command(user_text):
                 say(MODEL_BYEBYE)
                 break
+
+            # Check for Email Request
+            if _is_email_request(user_text):
+                _handle_email_request(user_text, rec, kw)
+                last_activity_ts = time.monotonic()
+                # Skip normal chat & follow-up
+                continue
 
             _conv.add_user(user_text)
             anim_think_start()
@@ -1892,24 +2098,35 @@ def main():
                 
                 while not exit_requested and not _shutdown_event.is_set() and (max_turns == 0 or turns < max_turns):
                     _led_set_state_safe(CogletState.AWAIT_FOLLOWUP)
-                    time.sleep(fu_cd)
-                    rec.flush() # Clean buffer
+                    # Guard against capturing our own TTS tail in BARGE_IN mode.
+                    # We mute locally during the cooldown so no speaker audio enters the recorder queue.
+                    sleep_s = fu_cd
+                    if BARGE_IN:
+                        try:
+                            tts_cd = float(os.getenv("COOLDOWN_AFTER_TTS_S", "0.5"))
+                        except Exception:
+                            tts_cd = 0.5
+                        sleep_s = max(fu_cd, tts_cd)
+                        rec.set_listen(False)
 
-                    # ===> NEU: Hardware-Poll PAUSIEREN für saubere Aufnahme <===
-                    if mic_hw: 
-                        mic_hw.set_paused(True)
+                    time.sleep(sleep_s)
+                    rec.flush() # Clean buffer
+                    if BARGE_IN:
+                        rec.set_listen(True)
                     
                     endpoint = SpeechEndpoint(sr=rec.sr, vad_aggr=rec.vad_aggr)
                     anim_listen_start()
                     try:
+                        # ===> NEU: Hardware-Poll PAUSIEREN für saubere Aufnahme <===
+                        if mic_hw:
+                            mic_hw.set_paused(True)
                         pcm, dur = endpoint.record(rec, no_speech_timeout_s=arm_s)
                     finally:
+                        # ===> NEU: Hardware-Poll wieder AKTIVIEREN <===
+                        if mic_hw:
+                            mic_hw.set_paused(False)
                         anim_listen_stop()
-
-                    # ===> NEU: Hardware-Poll wieder AKTIVIEREN <===
-                    if mic_hw: 
-                        mic_hw.set_paused(False)
-                              
+                           
                     if len(pcm) < int(0.2 * rec.sr) * 2:
                         logger.info("[pi] no follow-up detected")
                         say(EOC_ACK)
@@ -1931,9 +2148,16 @@ def main():
                         break
                     
                     norm = _normalize_command_text(user_text)
-                    if norm in {"danke", "stop", "nein danke", "tschüss"}:
+                    if norm in {"danke", "stop", "nein danke", "tschüss", "byebye"}:
                         say(EOC_ACK)
                         break
+
+                    # Check for Email Request (Follow-Up)
+                    if _is_email_request(user_text):
+                        _handle_email_request(user_text, rec, kw)
+                        last_activity_ts = time.monotonic()
+                        turns += 1
+                        continue
 
                     _conv.add_user(user_text)
                     anim_think_start()

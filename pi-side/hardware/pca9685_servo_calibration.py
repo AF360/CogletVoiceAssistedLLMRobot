@@ -9,6 +9,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Mapping, Protocol, Sequence
 
+# Define names for channels for easier identification during calibration
+SERVO_LABELS = {
+    0: "EYL - Left eye",
+    1: "EYR - Right eye",
+    2: "LID - Eyelid/blinking",
+    3: "NPT - Head Pitch (forward/backward)",
+    4: "NRL - Head Roll (left/right)",
+    5: "MOU - Mouth open/close",
+    6: "EAL - Left ear",
+    7: "EAR - Right ear",
+    8: "LWH - Left wheel",
+    9: "RWH - Right wheel",
+}
 
 class AngleDriver(Protocol):
     """Minimal driver interface for setting a servo angle."""
@@ -452,7 +465,7 @@ def run_interactive(session: ServoCalibrationSession) -> None:
             channel_label = session.channel_label(entry.channel)
             channel_display = f"Kanal {entry.channel}"
             if channel_label:
-                channel_display += f" ({channel_label})"
+                channel_display += f" (\033[92m{channel_label}\033[0m)"
             print(f"\n\033[1m=== Servo-{channel_display} ===\033[0m")
             last_channel = entry.channel
 
@@ -505,7 +518,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("servo-calibration.json"),  # <-- HIER GEÄNDERT auf Bindestrich!
+        default=Path("servo-calibration.json"),
         help="File with servo calibration data",
     )
     return parser
@@ -535,6 +548,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             default_max_deg=args.max_angle,
             default_start_deg=args.start_angle,
             initial_calibration=calibration_data,
+            # Pass the servo labels here
+            channel_labels=SERVO_LABELS,
         )
         try:
             run_interactive(session)
@@ -553,4 +568,3 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover - CLI-Einstiegspunkt
     raise SystemExit(main())
-    

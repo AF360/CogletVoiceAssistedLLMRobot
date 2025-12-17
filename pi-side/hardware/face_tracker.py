@@ -113,16 +113,6 @@ class FaceTracker:
         self._client = client
         self._servos = servos
         self._config = config or FaceTrackingConfig()
-        
-        # Override Patrol-Config via Env (Quick-Fix, um nicht alles umzubauen)
-        if os.getenv("FACE_TRACKING_PATROL_ENABLED", "1").lower() not in ("1", "true", "yes"):
-            object.__setattr__(self._config, 'patrol_enabled', False) # Hack für frozen dataclass
-        
-        try:
-            val = float(os.getenv("FACE_TRACKING_PATROL_INTERVAL_S", "30.0"))
-            object.__setattr__(self._config, 'patrol_interval_s', val)
-        except Exception: pass
-
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_detection: float = 0.0
@@ -130,8 +120,6 @@ class FaceTracker:
         self._lock = threading.Lock()
         self._wheel_trigger_time: Optional[float] = None
         self._wheel_active = False
-        
-        # Patrol state
         self._patrol_gen: Optional[Generator[None, None, None]] = None
         self._last_patrol_finish = time.monotonic()
 

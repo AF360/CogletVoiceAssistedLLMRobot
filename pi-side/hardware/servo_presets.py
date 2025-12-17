@@ -34,7 +34,7 @@ __all__ = [
 ]
 
 TRACKING_SERVO_NAMES: tuple[str, ...] = ("EYL", "EYR", "NPT", "LWH", "RWH")
-PERSONALITY_SERVO_NAMES: tuple[str, ...] = ("NRL", "MOU", "EAL", "EAR", "NPT")
+PERSONALITY_SERVO_NAMES: tuple[str, ...] = ("NRL", "MOU", "EAL", "EAR")
 
 @dataclass(frozen=True)
 class ServoDefinition:
@@ -42,6 +42,7 @@ class ServoDefinition:
 
     channel: int
     config: ServoConfig
+
 
 # Mapping of PCA9685 channels (SERVO_LAYOUT_V1):
 #   0: EYL (left eye)

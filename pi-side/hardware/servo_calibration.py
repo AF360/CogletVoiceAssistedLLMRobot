@@ -1,4 +1,4 @@
-"""Helper function to load and apply servo-calibration data."""
+"""Helfer zum Laden und Anwenden von Servo-Kalibrierungen."""
 
 from __future__ import annotations
 
@@ -10,7 +10,12 @@ from typing import Dict, Iterable, Tuple
 
 from hardware.pca9685_servo import ServoConfig
 
-__all__ = ["ServoCalibration", "apply_calibration_to_config", "load_servo_calibration"]
+__all__ = [
+    "ServoCalibration",
+    "apply_calibration_to_config",
+    "load_servo_calibration",
+    "merge_config_with_calibration",
+]
 
 
 @dataclass(frozen=True)
@@ -26,13 +31,11 @@ class ServoCalibration:
     @property
     def clamped_start(self) -> float:
         """Clamp the neutral angle into the allowed range."""
-
         return max(self.min_deg, min(self.max_deg, self.start_deg))
 
     @property
     def clamped_stop(self) -> float:
         """Clamp the stop angle into the allowed range (if defined)."""
-
         if self.stop_deg is None:
             return self.clamped_start
         return max(self.min_deg, min(self.max_deg, self.stop_deg))
@@ -40,7 +43,6 @@ class ServoCalibration:
 
 def _default_calibration_paths() -> Tuple[Path, ...]:
     """Return default search paths for the calibration file."""
-
     module_root = Path(__file__).resolve()
     repo_root = module_root.parent.parent.parent
     pi_side_root = module_root.parent.parent
@@ -101,12 +103,7 @@ def _parse_entry(raw: object, *, logger: logging.Logger | None) -> ServoCalibrat
 def load_servo_calibration(
     logger: logging.Logger | None = None, *, search_paths: Iterable[Path] | None = None
 ) -> Tuple[Dict[int, ServoCalibration], Path | None]:
-    """Load calibration data if present.
-
-    Returns a mapping from PCA9685 channel to :class:`ServoCalibration` and the
-    path that was actually used, or ``None`` if no file was found.
-    """
-
+    """Load calibration data if present."""
     calibration_map: Dict[int, ServoCalibration] = {}
     paths = tuple(search_paths) if search_paths is not None else _default_calibration_paths()
 
@@ -115,7 +112,7 @@ def load_servo_calibration(
             continue
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception as exc:  # pragma: no cover - defensiv
+        except Exception as exc:
             if logger:
                 logger.warning("Failed to read servo calibration from %s: %s", path, exc)
             continue
@@ -144,14 +141,42 @@ def load_servo_calibration(
 
 
 def apply_calibration_to_config(base: ServoConfig, calibration: ServoCalibration) -> ServoConfig:
-    """Apply calibration values to a servo configuration."""
+    """Apply calibration values to a servo configuration.
+    
+    IMPORTANT: This function assumes the calibration was performed using the
+    default reference frame of the 'pca9685_servo_calibration' tool:
+      -90 deg -> 500 us
+      +90 deg -> 2500 us
+    
+    It maps the calibrated min/max angles to new min/max pulse widths
+    so that 0 degrees in calibration remains 0 degrees (1500us) in runtime.
+    """
+    
+    # Reference frame of the calibration tool
+    REF_MIN_ANGLE = -90.0
+    REF_MAX_ANGLE = 90.0
+    REF_MIN_PULSE = 500.0
+    REF_MAX_PULSE = 2500.0
+    
+    ref_span_angle = REF_MAX_ANGLE - REF_MIN_ANGLE
+    ref_span_pulse = REF_MAX_PULSE - REF_MIN_PULSE
+    us_per_deg = ref_span_pulse / ref_span_angle  # ~11.11 us/deg
+
+    # Calculate the pulse width for the calibrated angles
+    # Pulse = 500 + (Angle - (-90)) * us_per_deg
+    def angle_to_pulse(angle: float) -> float:
+        return REF_MIN_PULSE + (angle - REF_MIN_ANGLE) * us_per_deg
+
+    new_min_pulse = angle_to_pulse(calibration.min_deg)
+    new_max_pulse = angle_to_pulse(calibration.max_deg)
 
     neutral = calibration.clamped_start
+    
     return ServoConfig(
         min_angle_deg=calibration.min_deg,
         max_angle_deg=calibration.max_deg,
-        min_pulse_us=base.min_pulse_us,
-        max_pulse_us=base.max_pulse_us,
+        min_pulse_us=new_min_pulse,   # <--- Updated Pulse Limit
+        max_pulse_us=new_max_pulse,   # <--- Updated Pulse Limit
         max_speed_deg_per_s=base.max_speed_deg_per_s,
         max_accel_deg_per_s2=base.max_accel_deg_per_s2,
         deadzone_deg=base.deadzone_deg,
@@ -159,3 +184,13 @@ def apply_calibration_to_config(base: ServoConfig, calibration: ServoCalibration
         invert=base.invert,
         pwm_frequency_hz=base.pwm_frequency_hz,
     )
+
+
+def merge_config_with_calibration(
+    env_config: ServoConfig, calibration: ServoCalibration | None
+) -> ServoConfig:
+    """Apply calibration after environment overrides."""
+    if calibration is None:
+        return env_config
+    return apply_calibration_to_config(env_config, calibration)
+    

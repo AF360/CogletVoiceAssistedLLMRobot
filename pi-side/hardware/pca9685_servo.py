@@ -137,7 +137,7 @@ class Servo:
             angle_error = target - self._angle_deg
             if abs(angle_error) <= self.config.deadzone_deg:
                 self._velocity_deg_per_s = 0.0
-                self._target_deg = self._angle_deg
+                # self._target_deg = self._angle_deg
                 return
 
             desired_velocity = angle_error / dt

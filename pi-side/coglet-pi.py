@@ -1176,10 +1176,10 @@ def _handle_email_request(user_text: str, rec, kw) -> bool:
     try:
         email_sender.send_email_smtp(email_to, subject, body)
         logger.info("[email] Sent successfully to %s", email_to)
-        speak_and_back_to_idle("Alles klar, ich habe dir eine ausführliche E-Mail geschickt und warte nun wieder auf das Wähkwört", rec, kw)
+        speak_and_back_to_idle("OK. I have dispatched a detailed email. Awaiting the next wakeword.", rec, kw)
     except Exception as e:
         logger.error("[email] SMTP sending failed: %s", e)
-        speak_and_back_to_idle("Ich konnte die E-Mail leider nicht senden.", rec, kw)
+        speak_and_back_to_idle("I'm sorry but there was an error and I could not send the email.", rec, kw)
 
     return True
 

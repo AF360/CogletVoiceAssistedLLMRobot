@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Coglet Pi side (v1.0.4.5):
+Coglet Pi side:
 - Wakeword (openwakeword) -> recording (sounddevice + webrtcvad) -> /stt on PC
 - /api/chat (Ollama, stream=true) -> sentence buffering -> Piper TTS (FIFO to warm server) -> aplay
 - Half-duplex: mic is muted during TTS (blocked for estimated speech duration).
@@ -8,6 +8,7 @@ Coglet Pi side (v1.0.4.5):
 - NEW: ReSpeaker Hardware VAD & DOA Integration (xvf_mic).
 - RESTORED: Follow-Up Logic.
 - FIXED: Barge-In self-interruption (flush).
+- Added: turn Coglet to speaker direction
 
 ENV (see /etc/default/coglet-pi):
   STT_URL, OLLAMA_URL, OLLAMA_MODEL, LLM_KEEP_ALIVE
@@ -18,7 +19,7 @@ ENV (see /etc/default/coglet-pi):
   TTS_WPM (e.g., 185), TTS_PUNCT_PAUSE_MS (e.g., 180)
 """
 
-__version__ = "1.0.4.5"
+__version__ = "1.0.4.7"
 
 import os
 import sys
@@ -26,7 +27,6 @@ import io
 import json
 import random
 import time
-import queue
 import threading
 import collections
 import subprocess
@@ -45,9 +45,8 @@ import sounddevice as sd
 import paho.mqtt.client as mqtt
 import errno
 import stat
-from math import gcd
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, List, Mapping, Optional, Set
+from typing import Any, Callable, Dict, Mapping, Optional, Set
 from scipy.signal import resample_poly
 
 from startup_checks import (
@@ -72,8 +71,6 @@ from hardware.servo_calibration import (
 )
 from hardware.channel_config import parse_channel_list, resolve_channel_list
 from hardware.servo_presets import (
-    POSE_CALIBRATE,
-    POSE_REST,
     SERVO_LAYOUT_V1,
     PERSONALITY_SERVO_NAMES,
     apply_pose,
@@ -148,20 +145,20 @@ STT_URL          = os.getenv("STT_URL", "http://192.168.10.161:5005")
 OLLAMA_URL       = os.getenv("OLLAMA_URL", "http://192.168.10.161:11434")
 OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL", "coglet:latest")
 LLM_KEEP_ALIVE   = os.getenv("LLM_KEEP_ALIVE", "30m")
-MODEL_CONFIRM    = os.getenv("MODEL_CONFIRM", "Yes?")
-MODEL_READY      = os.getenv("MODEL_READY", "All subsystems ready. I'm waiting for the wakeword.")
-MODEL_BYEBYE     = os.getenv("MODEL_BYEBYE", "See ya and byebye!")
-EOC_ACK          = os.getenv("EOC_ACK", "OK, I'm waiting for the wakeword.")
-AMS_ACK          = os.getenv("AMS_ACK", "I'm waiting for the wakeword.")
-DS_ACK           = os.getenv("DS_ACK", "I'm taking a nap. Wake me up with the wakeword.")
-OWW_MODEL        = os.getenv("OWW_MODEL", "/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/coglet.onnx")
+MODEL_CONFIRM    = os.getenv("MODEL_CONFIRM", "Ja?")
+MODEL_READY      = os.getenv("MODEL_READY", "Alle Subsysteme bereit. Ich erwarte das Wähkwörd.")
+MODEL_BYEBYE     = os.getenv("MODEL_BYEBYE", "Tschüssen!")
+EOC_ACK          = os.getenv("EOC_ACK", "Alles klar. Ich warte aufs neue Wähkwörd.")
+AMS_ACK          = os.getenv("AMS_ACK", "Ich warte nun wieder auf das Wähkwörd.")
+DS_ACK           = os.getenv("DS_ACK", "Ich mache ein Nickerchen. Wecke mich mit dem Wähkwört.")
+OWW_MODEL        = os.getenv("OWW_MODEL", "/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/wheatley.onnx")
 OWW_THRESHOLD    = float(os.getenv("OWW_THRESHOLD", "0.35"))
 OWW_DEBUG        = int(os.getenv("OWW_DEBUG", "0"))
 MIC_SR           = int(os.getenv("MIC_SR", "16000"))
 VAD_AGGR         = int(os.getenv("VAD_AGGRESSIVENESS", "2"))
 WAKEWORD_BACKEND = os.getenv("WAKEWORD_BACKEND", "oww")
-PIPER_VOICE      = os.getenv("PIPER_VOICE", "/opt/piper/voices/en_US-ryan-high.onnx")
-PIPER_VOICE_JSON = os.getenv("PIPER_VOICE_JSON", "/opt/piper/voices/en_US-ryan-high.onnx.json")
+PIPER_VOICE      = os.getenv("PIPER_VOICE", "/opt/piper/voices/de_DE-thorsten-high.onnx")
+PIPER_VOICE_JSON = os.getenv("PIPER_VOICE_JSON", "/opt/piper/voices/de_DE-thorsten-high.onnx.json")
 PIPER_FIFO       = os.getenv("PIPER_FIFO", "/run/piper/in.jsonl")
 PIPER_MQTT_HOST  = os.getenv("PIPER_MQTT_HOST", "127.0.0.1")
 PIPER_MQTT_PORT  = int(os.getenv("PIPER_MQTT_PORT", "1883"))
@@ -1176,10 +1173,10 @@ def _handle_email_request(user_text: str, rec, kw) -> bool:
     try:
         email_sender.send_email_smtp(email_to, subject, body)
         logger.info("[email] Sent successfully to %s", email_to)
-        speak_and_back_to_idle("OK. I have dispatched a detailed email. Awaiting the next wakeword.", rec, kw)
+        speak_and_back_to_idle("Alles klar, ich habe dir eine ausführliche E-Mail geschickt und warte nun wieder auf das Wähkwört", rec, kw)
     except Exception as e:
         logger.error("[email] SMTP sending failed: %s", e)
-        speak_and_back_to_idle("I'm sorry but there was an error and I could not send the email.", rec, kw)
+        speak_and_back_to_idle("Ich konnte die E-Mail leider nicht senden.", rec, kw)
 
     return True
 
@@ -1852,7 +1849,7 @@ def stt_transcribe(pcm_bytes: bytes, sample_rate: int) -> dict | None:
 # -------------------- Hauptloop --------------------
 def main():
     logger.info("[pi] Coglet PI starting v%s", __version__)
-    
+
     if DEMOMODE:
         demomode()
         return
@@ -1900,299 +1897,368 @@ def main():
 
     exit_requested = False
     last_activity_ts = time.monotonic()
+    last_turn_ts = 0.0
     is_deep_sleep = False
     breath_center_pitch = 0.0
 
     try:
         while not exit_requested and not _shutdown_event.is_set():
-            logger.info("[pi] waiting for wakeword")
-            
-            if not is_deep_sleep:
-                _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
-                _start_idle_animation()
-            
-            # Wakeword Loop
-            wake_detected = False
-            while not wake_detected and not _shutdown_event.is_set():
-                # 1. Hardware VAD/DOA Check
-                if mic_hw:
-                    is_speaking, angle = mic_hw.get_status()
-                    if is_speaking:
-                        # Turn the head towards the speaker here!
-                        logger.debug(f"[mic] Speech detected at {angle}°")
-                        pass
+            try:
+                logger.info("[pi] waiting for wakeword")
 
-                # 2. Audio Check
-                # NEW: Aggressive processing if buffer grows (catch-up)
-                processed_chunks = 0
-                max_chunks = 20 # Limit to prevent infinite loop, but high enough to clear ~3s buffer
-                
-                # We continue processing as long as:
-                # - buffer has data
-                # - AND (we haven't processed enough chunks OR buffer is still large)
-                # This ensures we drain the queue down to a small size.
-                while True:
-                    if kw.check_once(rec):
-                        wake_detected = True
-                        break
-                    
-                    processed_chunks += 1
-                    q_size = rec.get_queue_size() if hasattr(rec, "get_queue_size") else rec._q.qsize()
-                    
-                    # Break conditions:
-                    # 1. Empty buffer
-                    if q_size == 0:
-                        break
-                    # 2. Safety limit reached (approx 3.2s of audio)
-                    if processed_chunks >= max_chunks:
-                        logger.debug("[audio] Wakeword loop lagging? Processed %d chunks, q_size=%d", processed_chunks, q_size)
-                        break
-                    # 3. Buffer is small enough (real-time), we can sleep a bit
-                    if processed_chunks > 1 and q_size < 2:
-                        break
- 
-                if wake_detected: break
+                if not is_deep_sleep:
+                    _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
+                    _start_idle_animation()
 
-                # 3. Deep Sleep Logic
-                # Enter Deep Sleep
-                now = time.monotonic()
-                if not is_deep_sleep and (now - last_activity_ts > DEEP_SLEEP_TIMEOUT_S):
-                    logger.info("[pi] Entering Deep Sleep")
-                    is_deep_sleep = True
-                    say (DS_ACK)
-                    if face_tracker: face_tracker.stop()
-                    _stop_idle_animation()
-                    _eyelids_set_mode("closed")               
-                    rec.flush()
-                                  
-                # Deep Sleep Animation (Loop)
+                # Wakeword Loop
+                wake_detected = False
+                while not wake_detected and not _shutdown_event.is_set():
+                    # 1. Hardware VAD/DOA Check
+                    if mic_hw:
+                        is_speaking, raw_angle = mic_hw.get_status()
+                        if is_speaking:
+                            logger.debug(f"[mic] Speech detected at {raw_angle}°")
+                        if is_speaking and (time.monotonic() - last_turn_ts > 1.5):
+                            # Turn Coglet towards the speaker!
+                            # --- CONFIG ---
+                            DOA_OFFSET = 0       # <--- Set your calibrated offset here
+                            TURN_SPEED = 40.0    # Wheel speed (0..100)
+                            SEC_PER_DEG = 0.015  # Time per degree (Tuning required!)
+
+                            # Calculate relative angle (-180..180)
+                            rel_angle = (raw_angle - DOA_OFFSET) % 360
+                            if rel_angle > 180: rel_angle -= 360
+
+                            # CONSTRAINT: Only consider frontal 180° (-90 to +90).
+                            # Ignore sounds from behind to prevent cable twisting.
+                            if -90 <= rel_angle <= 90:
+                                # Deadzone: Only turn if deviation is significant (> 10 degrees)
+                                if abs(rel_angle) > 10:
+                                    logger.info(f"[body] Turning body by {rel_angle}°")
+                                    last_turn_ts = time.monotonic()
+
+                                    lwh = _get_anim_servo("LWH")
+                                    rwh = _get_anim_servo("RWH")
+
+                                    if lwh and rwh:
+                                        duration = abs(rel_angle) * SEC_PER_DEG
+                                        # Limit max turn duration to 0.8s for safety
+                                        duration = min(0.8, duration)
+
+                                        # Determine direction
+                                        # rel_angle > 0 (Right) -> LWH forward, RWH backward
+                                        # Verify if +/- matches Forward/Backward on your servos!
+                                        dir_factor = 1.0 if rel_angle > 0 else -1.0
+
+                                        # Start motors (Hack: update(1.0) forces immediate PWM change without smoothing)
+                                        lwh.move_to(TURN_SPEED * dir_factor)
+                                        rwh.move_to(-TURN_SPEED * dir_factor)
+                                        lwh.update(1.0)
+                                        rwh.update(1.0)
+
+                                        # Wait (Turn)
+                                        time.sleep(duration)
+
+                                        # Stop
+                                        lwh.move_to(0.0)
+                                        rwh.move_to(0.0)
+                                        lwh.update(1.0)
+                                        rwh.update(1.0)
+
+                                        # Briefly blind VAD thread to prevent motor noise from triggering speech
+                                        if hasattr(mic_hw, "_silence_counter"):
+                                            mic_hw._silence_counter = 100
+
+                    # 2. Audio Check
+                    # NEW: Aggressive processing if buffer grows (catch-up)
+                    processed_chunks = 0
+                    max_chunks = 20 # Limit to prevent infinite loop, but high enough to clear ~3s buffer
+
+                    # We continue processing as long as:
+                    # - buffer has data
+                    # - AND (we haven't processed enough chunks OR buffer is still large)
+                    # This ensures we drain the queue down to a small size.
+                    while True:
+                        if kw.check_once(rec):
+                            wake_detected = True
+                            break
+
+                        processed_chunks += 1
+                        q_size = rec.get_queue_size() if hasattr(rec, "get_queue_size") else rec._q.qsize()
+
+                        # Break conditions:
+                        # 1. Empty buffer
+                        if q_size == 0:
+                            break
+                        # 2. Safety limit reached (approx 3.2s of audio)
+                        if processed_chunks >= max_chunks:
+                            logger.debug("[audio] Wakeword loop lagging? Processed %d chunks, q_size=%d", processed_chunks, q_size)
+                            break
+                        # 3. Buffer is small enough (real-time), we can sleep a bit
+                        if processed_chunks > 1 and q_size < 2:
+                            break
+
+                    if wake_detected: break
+
+                    # 3. Deep Sleep Logic
+                    # Enter Deep Sleep
+                    now = time.monotonic()
+                    if not is_deep_sleep and (now - last_activity_ts > DEEP_SLEEP_TIMEOUT_S):
+                        logger.info("[pi] Entering Deep Sleep")
+                        is_deep_sleep = True
+                        say(DS_ACK)
+                        if face_tracker: face_tracker.stop()
+                        _stop_idle_animation()
+                        _eyelids_set_mode("closed")
+                        rec.flush()
+
+                    # Deep Sleep Animation (Loop)
+                    if is_deep_sleep:
+                        phase = math.sin(now * 1.5)
+
+                        # --- 1. LED Pulse (Color stabilized) ---
+                        if _status_led:
+                            norm = (phase + 1.0) / 2.0
+                            # FIX: Min brightness increased to 0.02 to prevent red shift at low levels
+                            brightness = 0.02 + (norm * 0.15)
+
+                            r_val = int(255 * brightness)
+                            g_val = int(180 * brightness)
+
+                            # FIX: Force green in very dark range for better yellow impression
+                            if r_val > 0 and g_val == 0:
+                                g_val = 1
+                            if r_val < 5:
+                                g_val = r_val
+
+                            try:
+                                if hasattr(_status_led, "_set_rgb"):
+                                    _status_led._set_rgb(r_val, g_val, 0)
+                                elif hasattr(_status_led, "_pixels") and _status_led._pixels:
+                                    _status_led._pixels.fill((r_val, g_val, 0))
+                                    _status_led._pixels.show()
+                            except Exception:
+                                pass
+
+                    time.sleep(0.01)
+
+                if _shutdown_event.is_set(): break
+
+                # --- WAKE UP ---
                 if is_deep_sleep:
-                    phase = math.sin(now * 1.5)
-                                  
-                    # --- 1. LED Pulse (Color stabilized) ---
-                    if _status_led:
-                        norm = (phase + 1.0) / 2.0
-                        # FIX: Min brightness increased to 0.02 to prevent red shift at low levels
-                        brightness = 0.02 + (norm * 0.15)
-                        
-                        r_val = int(255 * brightness)
-                        g_val = int(180 * brightness)
-                        
-                        # FIX: Force green in very dark range for better yellow impression
-                        if r_val > 0 and g_val == 0: 
-                            g_val = 1
-                        if r_val < 5:
-                            g_val = r_val
+                    logger.info("[pi] Waking up!")
+                    is_deep_sleep = False
+                    # Reset Wakeword on wake up to ensure fresh state
+                    if hasattr(kw, "reset"): kw.reset()
+                    rec.flush()
+                    _apply_pose_safe(_personality_neutral_targets())
+                    _eyelids_set_mode("auto")
+                    _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
+                    if face_tracker:
+                        if hasattr(face_tracker._config, 'patrol_enabled'):
+                             object.__setattr__(face_tracker._config, 'patrol_enabled', True)
+                        face_tracker.start()
+                    time.sleep(0.5)
 
-                        try:
-                            if hasattr(_status_led, "_set_rgb"):
-                                _status_led._set_rgb(r_val, g_val, 0)
-                            elif hasattr(_status_led, "_pixels") and _status_led._pixels:
-                                _status_led._pixels.fill((r_val, g_val, 0))
-                                _status_led._pixels.show()
-                        except Exception: 
-                            pass              
-                
-                time.sleep(0.01)
-
-            if _shutdown_event.is_set(): break
-
-            # --- WAKE UP ---
-            if is_deep_sleep:
-                logger.info("[pi] Waking up!")
-                is_deep_sleep = False
-                # Reset Wakeword on wake up to ensure fresh state
-                if hasattr(kw, "reset"): kw.reset()
-                rec.flush()
-                _apply_pose_safe(_personality_neutral_targets())
-                _eyelids_set_mode("auto")
-                _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
-                if face_tracker:
-                    if hasattr(face_tracker._config, 'patrol_enabled'):
-                         object.__setattr__(face_tracker._config, 'patrol_enabled', True)
-                    face_tracker.start()
-                time.sleep(0.5)
-
-            last_activity_ts = time.monotonic()
-            _stop_idle_animation()
-            
-            logger.info("[pi] wakeword detected")
-            # --- Guard: Don't record our own confirm prompt as user input ---
-            # half_duplex_tts() does NOT globally mute when BARGE_IN=1
-            # (see half_duplex_tts in this file). So we always mute locally here.
-            rec.set_listen(False)
-            rec.flush()
-            say(MODEL_CONFIRM)
-
-            # Let speaker tail decay while we are still muted, then start clean.
-            post_cd = float(os.getenv("COOLDOWN_AFTER_TTS_S", "0.5"))
-            if post_cd > 0:
-                time.sleep(post_cd)
-            rec.flush()
-            rec.set_listen(True)
-          
-            if os.getenv("LLM_RESET_ON_WAKE", "1") in ("1", "true"):
-                _conv.reset()
-
-            # Record User
-            endpoint = SpeechEndpoint(sr=rec.sr, vad_aggr=rec.vad_aggr)
-            anim_listen_start()
-            try:
-                # ===> NEU: Hardware-Poll PAUSIEREN für saubere Aufnahme <===
-                if mic_hw:
-                    mic_hw.set_paused(True)
-                pcm, dur = endpoint.record(rec)
-            finally:
-                # ===> NEU: Hardware-Poll wieder AKTIVIEREN <===
-                if mic_hw:
-                    mic_hw.set_paused(False)
-                anim_listen_stop()
-
-            if len(pcm) < int(0.2 * rec.sr) * 2:
-                logger.info("[pi] silence; back to idle")
-                continue
-            
-            last_activity_ts = time.monotonic()
-            _led_set_state_safe(CogletState.THINKING)
-            
-            # STT
-            stt = stt_transcribe(pcm, rec.sr)
-            user_text = (stt.get("text") or "").strip() if stt else ""
-            if not user_text:
-                continue
-            
-            logger.info("[pi] user: %s", user_text)
-            if _is_program_exit_command(user_text):
-                say(MODEL_BYEBYE)
-                break
-
-            # Check for Email Request
-            if _is_email_request(user_text):
-                _handle_email_request(user_text, rec, kw)
                 last_activity_ts = time.monotonic()
-                # Skip normal chat & follow-up
-                continue
+                _stop_idle_animation()
 
-            _conv.add_user(user_text)
-            anim_think_start()
-            try:
-                reply = llm_chat_once(user_text)
-            except Exception:
-                anim_think_stop()
-                raise
-            
-            if reply:
-                _conv.add_assistant(reply)
-                logger.info("[pi] assistant: %s", reply)
-                speak_and_back_to_idle(reply, rec, kw)
-            anim_think_stop()
-            last_activity_ts = time.monotonic()
+                logger.info("[pi] wakeword detected")
+                # --- Guard: Don't record our own confirm prompt as user input ---
+                # half_duplex_tts() does NOT globally mute when BARGE_IN=1
+                # (see half_duplex_tts in this file). So we always mute locally here.
+                rec.set_listen(False)
+                rec.flush()
+                say(MODEL_CONFIRM)
 
-            # --- Follow-Up Window ---
-            if os.getenv("FOLLOWUP_ENABLE", "1") in ("1", "true", "True"):
-                try: max_turns = int(os.getenv("FOLLOWUP_MAX_TURNS", "10"))
-                except: max_turns = 5
-                arm_s = float(os.getenv("FOLLOWUP_ARM_S", "3.0"))
-                fu_cd = float(os.getenv("FOLLOWUP_COOLDOWN_S", "0.10"))
-                turns = 0
-                
-                while not exit_requested and not _shutdown_event.is_set() and (max_turns == 0 or turns < max_turns):
-                    _led_set_state_safe(CogletState.AWAIT_FOLLOWUP)
-                    # Guard against capturing our own TTS tail in BARGE_IN mode.
-                    # We mute locally during the cooldown so no speaker audio enters the recorder queue.
-                    sleep_s = fu_cd
-                    if BARGE_IN:
-                        try:
-                            tts_cd = float(os.getenv("COOLDOWN_AFTER_TTS_S", "0.5"))
-                        except Exception:
-                            tts_cd = 0.5
-                        sleep_s = max(fu_cd, tts_cd)
-                        rec.set_listen(False)
+                # Let speaker tail decay while we are still muted, then start clean.
+                post_cd = float(os.getenv("COOLDOWN_AFTER_TTS_S", "0.5"))
+                if post_cd > 0:
+                    time.sleep(post_cd)
+                rec.flush()
+                rec.set_listen(True)
 
-                    time.sleep(sleep_s)
-                    rec.flush() # Clean buffer
-                    if BARGE_IN:
-                        rec.set_listen(True)
-                    
-                    endpoint = SpeechEndpoint(sr=rec.sr, vad_aggr=rec.vad_aggr)
-                    anim_listen_start()
-                    try:
-                        # ===> NEU: Hardware-Poll PAUSIEREN für saubere Aufnahme <===
-                        if mic_hw:
-                            mic_hw.set_paused(True)
-                        pcm, dur = endpoint.record(rec, no_speech_timeout_s=arm_s)
-                    finally:
-                        # ===> NEU: Hardware-Poll wieder AKTIVIEREN <===
-                        if mic_hw:
-                            mic_hw.set_paused(False)
-                        anim_listen_stop()
-                           
-                    if len(pcm) < int(0.2 * rec.sr) * 2:
-                        logger.info("[pi] no follow-up detected")
-                        say(EOC_ACK)
-                        break 
-                    
+                if os.getenv("LLM_RESET_ON_WAKE", "1") in ("1", "true"):
+                    _conv.reset()
+
+                # Record User
+                endpoint = SpeechEndpoint(sr=rec.sr, vad_aggr=rec.vad_aggr)
+                anim_listen_start()
+                try:
+                    # ===> NEU: Hardware-Poll PAUSIEREN für saubere Aufnahme <===
+                    if mic_hw:
+                        mic_hw.set_paused(True)
+                    pcm, dur = endpoint.record(rec)
+                finally:
+                    # ===> NEU: Hardware-Poll wieder AKTIVIEREN <===
+                    if mic_hw:
+                        mic_hw.set_paused(False)
+                    anim_listen_stop()
+
+                if len(pcm) < int(0.2 * rec.sr) * 2:
+                    logger.info("[pi] silence; back to idle")
+                    continue
+
+                last_activity_ts = time.monotonic()
+                _led_set_state_safe(CogletState.THINKING)
+
+                # STT
+                stt = stt_transcribe(pcm, rec.sr)
+                user_text = (stt.get("text") or "").strip() if stt else ""
+                if not user_text:
+                    continue
+
+                logger.info("[pi] user: %s", user_text)
+                if _is_program_exit_command(user_text):
+                    say(MODEL_BYEBYE)
+                    break
+
+                # Check for Email Request
+                if _is_email_request(user_text):
+                    _handle_email_request(user_text, rec, kw)
                     last_activity_ts = time.monotonic()
-                    
-                    stt = stt_transcribe(pcm, rec.sr)
-                    user_text = (stt.get("text") or "").strip() if stt else ""
-                    if not user_text:
-                        say(EOC_ACK)
-                        break
+                    # Skip normal chat & follow-up
+                    continue
 
-                    logger.info("[pi] user (fu): %s", user_text)
-                    if _is_program_exit_command(user_text):
-                        say(MODEL_BYEBYE)
-                        exit_requested = True
-                        _shutdown_event.set()
-                        break
-                    
-                    norm = _normalize_command_text(user_text)
-                    if norm in {"danke", "stop", "nein danke", "tschüss", "byebye"}:
-                        say(EOC_ACK)
-                        break
-
-                    # Check for Email Request (Follow-Up)
-                    if _is_email_request(user_text):
-                        _handle_email_request(user_text, rec, kw)
-                        last_activity_ts = time.monotonic()
-                        turns += 1
-                        continue
-
-                    _conv.add_user(user_text)
-                    anim_think_start()
-                    try:
-                        reply = llm_chat_once(user_text)
-                    except Exception:
-                        anim_think_stop()
-                        raise
-                    
-                    if reply:
-                        _conv.add_assistant(reply)
-                        logger.info("[pi] assistant (fu): %s", reply)
-                        speak_and_back_to_idle(reply, rec, kw)
-                        turns += 1
+                _conv.add_user(user_text)
+                anim_think_start()
+                try:
+                    reply = llm_chat_once(user_text)
+                except Exception:
                     anim_think_stop()
-                    last_activity_ts = time.monotonic()
+                    raise
 
-            _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
-            # After Follow-Up session, ensure we start fresh
-            rec.flush()
-            if hasattr(kw, "reset"): kw.reset()
+                if reply:
+                    _conv.add_assistant(reply)
+                    logger.info("[pi] assistant: %s", reply)
+                    speak_and_back_to_idle(reply, rec, kw)
+                anim_think_stop()
+                last_activity_ts = time.monotonic()
+
+                # --- Follow-Up Window ---
+                if os.getenv("FOLLOWUP_ENABLE", "1") in ("1", "true", "True"):
+                    try: max_turns = int(os.getenv("FOLLOWUP_MAX_TURNS", "10"))
+                    except: max_turns = 5
+                    arm_s = float(os.getenv("FOLLOWUP_ARM_S", "3.0"))
+                    fu_cd = float(os.getenv("FOLLOWUP_COOLDOWN_S", "0.10"))
+                    turns = 0
+
+                    while not exit_requested and not _shutdown_event.is_set() and (max_turns == 0 or turns < max_turns):
+                        _led_set_state_safe(CogletState.AWAIT_FOLLOWUP)
+                        # Guard against capturing our own TTS tail in BARGE_IN mode.
+                        # We mute locally during the cooldown so no speaker audio enters the recorder queue.
+                        sleep_s = fu_cd
+                        if BARGE_IN:
+                            try:
+                                tts_cd = float(os.getenv("COOLDOWN_AFTER_TTS_S", "0.5"))
+                            except Exception:
+                                tts_cd = 0.5
+                            sleep_s = max(fu_cd, tts_cd)
+                            rec.set_listen(False)
+
+                        time.sleep(sleep_s)
+                        rec.flush() # Clean buffer
+                        if BARGE_IN:
+                            rec.set_listen(True)
+
+                        endpoint = SpeechEndpoint(sr=rec.sr, vad_aggr=rec.vad_aggr)
+                        anim_listen_start()
+                        try:
+                            # ===> NEU: Hardware-Poll PAUSIEREN für saubere Aufnahme <===
+                            if mic_hw:
+                                mic_hw.set_paused(True)
+                            pcm, dur = endpoint.record(rec, no_speech_timeout_s=arm_s)
+                        finally:
+                            # ===> NEU: Hardware-Poll wieder AKTIVIEREN <===
+                            if mic_hw:
+                                mic_hw.set_paused(False)
+                            anim_listen_stop()
+
+                        if len(pcm) < int(0.2 * rec.sr) * 2:
+                            logger.info("[pi] no follow-up detected")
+                            say(EOC_ACK)
+                            break
+
+                        last_activity_ts = time.monotonic()
+
+                        stt = stt_transcribe(pcm, rec.sr)
+                        user_text = (stt.get("text") or "").strip() if stt else ""
+                        if not user_text:
+                            say(EOC_ACK)
+                            break
+
+                        logger.info("[pi] user (fu): %s", user_text)
+                        if _is_program_exit_command(user_text):
+                            say(MODEL_BYEBYE)
+                            exit_requested = True
+                            _shutdown_event.set()
+                            break
+
+                        norm = _normalize_command_text(user_text)
+                        if norm in {"danke", "stop", "nein danke", "tschüss", "byebye"}:
+                            say(EOC_ACK)
+                            break
+
+                        # Check for Email Request (Follow-Up)
+                        if _is_email_request(user_text):
+                            _handle_email_request(user_text, rec, kw)
+                            last_activity_ts = time.monotonic()
+                            turns += 1
+                            continue
+
+                        _conv.add_user(user_text)
+                        anim_think_start()
+                        try:
+                            reply = llm_chat_once(user_text)
+                        except Exception:
+                            anim_think_stop()
+                            raise
+
+                        if reply:
+                            _conv.add_assistant(reply)
+                            logger.info("[pi] assistant (fu): %s", reply)
+                            speak_and_back_to_idle(reply, rec, kw)
+                            turns += 1
+                        anim_think_stop()
+                        last_activity_ts = time.monotonic()
+
+                _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
+                # After Follow-Up session, ensure we start fresh
+                rec.flush()
+                if hasattr(kw, "reset"): kw.reset()
+
+            except Exception as e:
+                logger.exception("[pi] Critical error in main loop: %s", e)
+                # Short sleep to prevent busy loop if error is persistent
+                time.sleep(1.0)
+                # Try to restore safe state
+                try:
+                    anim_think_stop()
+                    anim_listen_stop()
+                    anim_talk_stop()
+                    _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
+                except Exception:
+                    pass
 
     except KeyboardInterrupt:
         logger.info("[pi] interrupted.")
         say(MODEL_BYEBYE)
     finally:
         _shutdown_event.set()
-        if mic_hw: mic_hw.stop()
-        if face_tracker_cleanup: face_tracker_cleanup()
+        if mic_hw: 
+            mic_hw.stop()
+        if face_tracker_cleanup: 
+            face_tracker_cleanup()
         _restore_neutral_pose_and_close_lid()
         _cleanup_servo_hardware(servo_setup)
-        try: rec.stop()
-        except: pass
-        try: _led_set_state_safe(CogletState.OFF)
-        except: pass
+        try: 
+            rec.stop()
+        except: 
+            pass
+        try: 
+            _led_set_state_safe(CogletState.OFF)
+        except: 
+            pass
 
 if __name__ == "__main__":
     main()

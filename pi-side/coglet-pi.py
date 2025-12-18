@@ -1912,62 +1912,17 @@ def main():
 
                 # Wakeword Loop
                 wake_detected = False
+                target_doa = None # Reset previous DOA target
+
                 while not wake_detected and not _shutdown_event.is_set():
                     # 1. Hardware VAD/DOA Check
+                    # NOTE: We do NOT block here anymore. We just track the speaker angle.
                     if mic_hw:
                         is_speaking, raw_angle = mic_hw.get_status()
                         if is_speaking:
                             logger.debug(f"[mic] Speech detected at {raw_angle}°")
-                        if is_speaking and (time.monotonic() - last_turn_ts > 1.5):
-                            # Turn Coglet towards the speaker!
-                            # --- CONFIG ---
-                            DOA_OFFSET = 0       # <--- Set your calibrated offset here
-                            TURN_SPEED = 40.0    # Wheel speed (0..100)
-                            SEC_PER_DEG = 0.015  # Time per degree (Tuning required!)
-
-                            # Calculate relative angle (-180..180)
-                            rel_angle = (raw_angle - DOA_OFFSET) % 360
-                            if rel_angle > 180: rel_angle -= 360
-
-                            # CONSTRAINT: Only consider frontal 180° (-90 to +90).
-                            # Ignore sounds from behind to prevent cable twisting.
-                            if -90 <= rel_angle <= 90:
-                                # Deadzone: Only turn if deviation is significant (> 10 degrees)
-                                if abs(rel_angle) > 10:
-                                    logger.info(f"[body] Turning body by {rel_angle}°")
-                                    last_turn_ts = time.monotonic()
-
-                                    lwh = _get_anim_servo("LWH")
-                                    rwh = _get_anim_servo("RWH")
-
-                                    if lwh and rwh:
-                                        duration = abs(rel_angle) * SEC_PER_DEG
-                                        # Limit max turn duration to 0.8s for safety
-                                        duration = min(0.8, duration)
-
-                                        # Determine direction
-                                        # rel_angle > 0 (Right) -> LWH forward, RWH backward
-                                        # Verify if +/- matches Forward/Backward on your servos!
-                                        dir_factor = 1.0 if rel_angle > 0 else -1.0
-
-                                        # Start motors (Hack: update(1.0) forces immediate PWM change without smoothing)
-                                        lwh.move_to(TURN_SPEED * dir_factor)
-                                        rwh.move_to(-TURN_SPEED * dir_factor)
-                                        lwh.update(1.0)
-                                        rwh.update(1.0)
-
-                                        # Wait (Turn)
-                                        time.sleep(duration)
-
-                                        # Stop
-                                        lwh.move_to(0.0)
-                                        rwh.move_to(0.0)
-                                        lwh.update(1.0)
-                                        rwh.update(1.0)
-
-                                        # Briefly blind VAD thread to prevent motor noise from triggering speech
-                                        if hasattr(mic_hw, "_silence_counter"):
-                                            mic_hw._silence_counter = 100
+                            # Keep updating target DOA while speaking
+                            target_doa = raw_angle
 
                     # 2. Audio Check
                     # NEW: Aggressive processing if buffer grows (catch-up)
@@ -1999,7 +1954,7 @@ def main():
                             break
 
                     if wake_detected: break
-
+                
                     # 3. Deep Sleep Logic
                     # Enter Deep Sleep
                     now = time.monotonic()
@@ -2068,6 +2023,56 @@ def main():
                 # half_duplex_tts() does NOT globally mute when BARGE_IN=1
                 # (see half_duplex_tts in this file). So we always mute locally here.
                 rec.set_listen(False)
+
+                # --- NEW: Turn Body to Speaker NOW ---
+                # We turn only AFTER detecting the wakeword, using the last known direction.
+                # This prevents blocking the audio loop.
+                if mic_hw and target_doa is not None:
+                    raw_angle = target_doa
+                    # --- CONFIG ---
+                    DOA_OFFSET = 0       # <--- Set your calibrated offset here
+                    TURN_SPEED = 40.0    # Wheel speed (0..100)
+                    SEC_PER_DEG = 0.015  # Time per degree (Tuning required!)
+
+                    # Calculate relative angle (-180..180)
+                    rel_angle = (raw_angle - DOA_OFFSET) % 360
+                    if rel_angle > 180: rel_angle -= 360
+
+                    # CONSTRAINT: Only consider frontal 180° (-90 to +90).
+                    if -90 <= rel_angle <= 90:
+                        # Deadzone: Only turn if deviation is significant (> 10 degrees)
+                        if abs(rel_angle) > 10:
+                            logger.info(f"[body] Turning body by {rel_angle}°")
+                            
+                            lwh = _get_anim_servo("LWH")
+                            rwh = _get_anim_servo("RWH")
+
+                            if lwh and rwh:
+                                duration = abs(rel_angle) * SEC_PER_DEG
+                                duration = min(0.8, duration)
+
+                                # Determine direction
+                                # rel_angle > 0 (Right) -> LWH forward, RWH backward
+                                dir_factor = 1.0 if rel_angle > 0 else -1.0
+
+                                # Start motors (Wait allowed here, wakeword is already caught!)
+                                lwh.move_to(TURN_SPEED * dir_factor)
+                                rwh.move_to(-TURN_SPEED * dir_factor)
+                                lwh.update(1.0)
+                                rwh.update(1.0)
+
+                                time.sleep(duration)
+
+                                # Stop
+                                lwh.move_to(0.0)
+                                rwh.move_to(0.0)
+                                lwh.update(1.0)
+                                rwh.update(1.0)
+                                
+                                # Blind HW VAD briefly
+                                if hasattr(mic_hw, "_silence_counter"):
+                                    mic_hw._silence_counter = 50
+              
                 rec.flush()
                 say(MODEL_CONFIRM)
 

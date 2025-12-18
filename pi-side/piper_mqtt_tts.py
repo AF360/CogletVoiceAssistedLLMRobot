@@ -25,8 +25,8 @@ except Exception:
 
 # ============ Env ============
 PIPER_BIN  = os.getenv("PIPER_BIN", "/opt/piper/piper")
-PIPER_MODEL= os.getenv("PIPER_MODEL", "/opt/piper/voices/de_DE-karlsson-low.onnx")
-PIPER_CFG  = os.getenv("PIPER_CFG",   "/opt/piper/voices/de_DE-karlsson-low.onnx.json")
+PIPER_MODEL= os.getenv("PIPER_MODEL", "/opt/piper/voices/en_US-ryan-high.onnx")
+PIPER_CFG  = os.getenv("PIPER_CFG",   "/opt/piper/voices/en_US-ryan-high.onnx.json")
 SENT_SIL   = os.getenv("PIPER_SENTENCE_SILENCE", "0.06")
 
 SPEAKER    = os.getenv("SPEAKER_DEVICE", "spk")

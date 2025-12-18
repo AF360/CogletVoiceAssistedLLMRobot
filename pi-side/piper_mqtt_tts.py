@@ -70,8 +70,12 @@ class PiperPersistent:
         # Force CWD into out_dir (avoids quirks like "Output directory: /."))
         try:
             os.chdir(self.out_dir)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("[piper] Error changing directory: %s", e)
+        except Exception as e:
+            logger.warning("[piper] Error reading stderr: %s", e)
+        except Exception as e:
+            logger.warning("[piper] Error killing process: %s", e)
 
         cmd = [
             self.bin,
@@ -108,9 +112,9 @@ class PiperPersistent:
                     logger.debug("[piper] %s", line)  # log noisy metrics only on DEBUG
                 else:
                     logger.info("[piper] %s", line)
-        except Exception:
-            pass
-
+        except Exception as e:
+            logger.warning("[piper] Error reading stderr: %s", e)
+    
     def is_alive(self):
         return self.proc and (self.proc.poll() is None)
 

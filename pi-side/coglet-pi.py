@@ -19,7 +19,7 @@ ENV (see /etc/default/coglet-pi):
   TTS_WPM (e.g., 185), TTS_PUNCT_PAUSE_MS (e.g., 180)
 """
 
-__version__ = "1.0.4.7"
+__version__ = "1.0.5.2"
 
 import os
 import sys

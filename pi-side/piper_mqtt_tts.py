@@ -72,10 +72,6 @@ class PiperPersistent:
             os.chdir(self.out_dir)
         except Exception as e:
             logger.error("[piper] Error changing directory: %s", e)
-        except Exception as e:
-            logger.warning("[piper] Error reading stderr: %s", e)
-        except Exception as e:
-            logger.warning("[piper] Error killing process: %s", e)
 
         cmd = [
             self.bin,
@@ -126,8 +122,8 @@ class PiperPersistent:
                     self.proc.wait(timeout=1.0)
                 except sp.TimeoutExpired:
                     self.proc.kill()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[piper] Error killing process: %s", e)
 
     def synth_one(self, text, timeout_sec=20.0):
         """Send one line of text, wait for a *.wav line on stdout, and return its path."""
@@ -186,8 +182,8 @@ class Player:
                     self._proc.wait(timeout=0.5)
                 except sp.TimeoutExpired:
                     self._proc.kill()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("[piper] Error killing player process: %s", e)
             finally:
                 self._proc = None
 
@@ -367,8 +363,10 @@ def worker_loop(client: mqtt.Client, piper: PiperPersistent, player: Player, can
             speak_start = time.perf_counter()
             ok = player.wait()
             speak_end = time.perf_counter()
-            try: os.remove(wav_path)
-            except Exception: pass
+            try: 
+                os.remove(wav_path)
+            except Exception: 
+                logger.warning("Failed to remove wav: %s", wav_path)
 
             if cancel_flag[0]:
                 publish_status(client, "CANCELLED", eid)  # emit once here only
@@ -459,4 +457,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

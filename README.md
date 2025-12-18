@@ -31,7 +31,7 @@ We have modified and extended the original code for the Coglet project.
 ## Open-source software used (not part of this repository):
 - Flask
 - Faster-Whisper STT
-- Ollama with model Qwen2.5:7b-instruct or similar
+- Ollama with model Gemma3:27b, Qwen2.5:7b-instruct or similar
 - OpenWakeWord
 - Mosquitto-MQTT
 - Piper TTS

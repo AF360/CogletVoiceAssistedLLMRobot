@@ -2,8 +2,8 @@
 
 # Piper
 PIPER_BIN=/opt/piper/piper
-PIPER_MODEL=/opt/piper/voices/de_DE-karlsson-low.onnx
-PIPER_CFG=/opt/piper/voices/de_DE-karlsson-low.onnx.json
+PIPER_MODEL=/opt/piper/voices/en_US-ryan-high.onnx.onnx
+PIPER_CFG=/opt/piper/voices/en_US-ryan-high.onnx.json
 PIPER_SENTENCE_SILENCE=0.06
 
 # Audio

@@ -13,12 +13,11 @@ export COGLET_LANG="en"
 
 # NOTE: Voice/Model configs are now handled dynamically via COGLET_LANG in python.
 # Uncomment below only to override the language defaults.
-# export STT_LANG="de"
-# export PIPER_VOICE="/opt/piper/voices/de_DE-thorsten-high.onnx"
-# export PIPER_VOICE_JSON="/opt/piper/voices/de_DE-thorsten-high.onnx.json"
-# export PIPER_MODEL="/opt/piper/voices/de_DE-thorsten-high.onnx"
-# export PIPER_CFG="/opt/piper/voices/de_DE-thorsten-high.onnx.json"
-
+# export STT_LANG="en"
+# export PIPER_MODEL="/opt/piper/voices/en_US-ryan-high.onnx"
+# export PIPER_CFG="/opt/piper/voices/en_US-ryan-high.onnx.json"
+# export PIPER_VOICE="/opt/piper/voices/en_US-ryan-high.onnx"
+# export PIPER_VOICE_JSON="/opt/piper/voices/en_US-ryan-high.onnx.json"
 # NOTE: Prompt strings are also handled dynamically.
 # Uncomment only to override.
 # export MODEL_CONFIRM="Ja?"
@@ -27,6 +26,13 @@ export COGLET_LANG="en"
 # export EOC_ACK="OK. Ich warte aufs neue Wähkwörd."
 # export AMS_ACK="Ich warte wieder auf das Wähkwört."
 # export DS_ACK="Ich mache ein Nickerchen. Weck mich mit dem Wähkwört."
+
+export SPEAKER_DEVICE="spk"
+export APLAY_FORMAT="S16_LE"
+export MODEL_CONFIRM="Yes?"
+export MODEL_READY="All subsystems running. Listening for the wakeword."
+export MODEL_BYEBYE="See ya!"
+
 
 export PIPER_FIFO="/run/piper/in.jsonl"
 export PIPER_EVENTS_FIFO="/run/piper/events"

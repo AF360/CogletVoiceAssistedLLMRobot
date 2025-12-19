@@ -84,7 +84,6 @@ export FOLLOWUP_COOLDOWN_S=0.10     # short Cooldown before listening for follow
 export LLM_USE_CHAT=1               # LLM context-aware
 export LLM_RESET_ON_WAKE=1          # New context each time the Wakeword initiates a new sessio
 export LLM_CTX_TURNS=10
-# export LLM_SYSTEM_PROMPT="Du bist Coglet, ein freundlicher, faktentreuer Roboter-Assistent. Antworte knapp und präzise auf Deutsch. Verwende die Du-Form."
 export LLM_TEMPERATURE=0.3
 export LLM_NUM_CTX=8192             # 4096 on weaker systems
 export LLM_KEEP_ALIVE="30m"

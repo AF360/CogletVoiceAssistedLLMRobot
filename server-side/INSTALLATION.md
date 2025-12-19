@@ -252,6 +252,4 @@ curl -f http://127.0.0.1:5005/healthz
 - **Faster‑Whisper** GPU stack in a Python venv under `/home/coglet/stt`
 - **STT HTTP** service (`stt-http-server.service`) exposing `/stt` and `/healthz` on port `5005`
 
----
 
-Happy hacking!

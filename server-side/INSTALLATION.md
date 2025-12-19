@@ -1,7 +1,7 @@
-# Coglet Server Setup (Debian 12 + NVIDIA)
+# Coglet Server Setup (Debian 12 + nVIDIA RTX GPU)
 
-From zero to a working stack with **Ollama** (Qwen2.5 → Coglet) and **Faster‑Whisper** (GPU).  
-Tested on Debian 12 (“Bookworm”) with NVIDIA GPUs (≥ 8–12 GB VRAM).
+From zero to a working stack with **Ollama** (Gemma3 → Coglet) and **Faster‑Whisper** (GPU).  
+Tested on Debian 12 (“Bookworm”) with NVIDIA GPUs (≥ 8–12 GB VRAM required, 24-32 GB VRAM recommended).
 
 ---
 

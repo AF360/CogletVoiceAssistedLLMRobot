@@ -94,7 +94,6 @@ export SMTP_HOST="smtp.gmail.com"
 export SMTP_PORT="587"
 export SMTP_FROM="your.senderadress@gmail.com"
 export SMTP_STARTTLS="1"
-export SMTP_SSL="0"
 export SMTP_USERNAME="your.senderadress@gmail.com"
 export SMTP_PASSWORD="your-email-app-password"
 

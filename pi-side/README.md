@@ -171,7 +171,7 @@ defaults.pcm.card 1
 defaults.ctl.card 1
 ```
 
-### 🌍 Multi-Language & Localization
+### Multi-Language & Localization
 Coglet can now be switched globally between German and English. This controls TTS, STT, and the assistant's personality.
 
 **In `env-exports.sh`:**
@@ -182,9 +182,10 @@ export COGLET_LANG="en"
 
 Note: All model-specific paths (e.g., Piper Voices) are selected automatically based on this variable but can still be overridden manually in env-exports.sh if needed.
 
-### 📧 Email Agent
+### Email-Agent
 
 Coglet can send the content of the last conversation or generated text upon request (e.g., "Send this to me as an email").
+For sending emails the LLM is reconfigured on the fly to produce detailed and nicely formatted emails in contrast to the brief spoken replies. 
 Required configuration in env-exports.sh:
 
 ```bash
@@ -196,7 +197,7 @@ export SMTP_PASS="your-app-password"           # Use App Password, not login pas
 export SMTP_STARTTLS="1"```
 ```
 
-### 🤖 Body Orientation (Turn-to-Voice)
+### Body Orientation (Turn-to-Voice)
 
 Coglet uses the ReSpeaker Mic Array to locate the speaker's direction (DOA) and turns its body (via Wheel Servos) towards them.
 Prerequisite: Functional Wheel Servos (LWH, RWH) and correct calibration.

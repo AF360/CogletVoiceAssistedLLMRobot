@@ -18,6 +18,6 @@
 - **Turn-to-Voice (Body Orientation):**
   - Coglet physically turns its body (via wheel servos) towards the speaker.
   - Based on DOA (Direction of Arrival) from the ReSpeaker Mic Array.
-  - This behaviour is optional and can be controlled by a config-switch
+  - This behaviour is optional and can be controlled by a config-switches 
 - **STT Server:** Now supports dynamic prompts (`WHISPER_PROMPT_DE`/`_EN`) to prevent hallucinations or unwanted translation when switching languages.
 - **Config:** Cleaned up `env-exports.sh`; hardcoded strings replaced by internal dictionary lookups.

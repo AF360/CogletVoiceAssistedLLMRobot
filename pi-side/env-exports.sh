@@ -139,17 +139,17 @@ export FACE_TRACKING_SERIAL_TIMEOUT="0.0"
 export FACE_TRACKING_PWM_FREQ_HZ="50.0"
 
 # Channel mapping (defaults follow SERVO_LAYOUT_V1; wheels can be disabled with an empty list)
-export FACE_TRACKING_EYE_CHANNELS="0,1"           # linkes/rechtes Auge (EYL/EYR)
-export FACE_TRACKING_WHEEL_CHANNELS="8,9"         # linkes/rechtes Rad (LWH/RWH); leer = Wheels aus
-export FACE_TRACKING_EYE_LEFT_CHANNEL="0"          # setzt erstes Auge explizit
-export FACE_TRACKING_EYE_RIGHT_CHANNEL="1"         # setzt zweites Auge explizit
-export FACE_TRACKING_YAW_CHANNEL=""              # Kopf links/rechts (NRL)
-export FACE_TRACKING_PITCH_CHANNEL="3"            # Kopf hoch/runter (NPT)
-export FACE_TRACKING_WHEEL_LEFT_CHANNEL="8"        # überschreibt erstes Rad
-export FACE_TRACKING_WHEEL_RIGHT_CHANNEL="9"       # überschreibt zweites Rad
+export FACE_TRACKING_EYE_CHANNELS="0,1"           # left/right Eye (EYL/EYR)
+export FACE_TRACKING_WHEEL_CHANNELS="8,9"         # left/right Wheel (LWH/RWH); empty = wheels off
+export FACE_TRACKING_EYE_LEFT_CHANNEL="0"          # first eye explicitely
+export FACE_TRACKING_EYE_RIGHT_CHANNEL="1"         # second eye explicitely
+export FACE_TRACKING_YAW_CHANNEL=""                # YAW servo (turning head, not available in recent Coglet design=)
+export FACE_TRACKING_PITCH_CHANNEL="3"             # head up/down nodding, (NPT)
+export FACE_TRACKING_WHEEL_LEFT_CHANNEL="8"        # first wheel channel
+export FACE_TRACKING_WHEEL_RIGHT_CHANNEL="9"       # second wheel channel
 
-# Geometrie & Controller-Gains (siehe hardware/face_tracker.FaceTrackingConfig)
-# Vorher: 220.0 / 200.0- Alternativ zu 192/192 auch 240/240
+# geometry & controller-gains (see hardware/face_tracker.FaceTrackingConfig)
+# 220.0 / 200.0- alternatively 192/192 or 240/240
 export FACE_TRACKING_FRAME_WIDTH="320.0"
 export FACE_TRACKING_FRAME_HEIGHT="320.0"
 #export FACE_TRACKING_FRAME_WIDTH="220.0"
@@ -159,8 +159,6 @@ export FACE_TRACKING_EYE_DEADZONE_PX="10.0"
 export FACE_TRACKING_PITCH_DEADZONE_PX="18.0"
 export FACE_TRACKING_EYE_GAIN_DEG_PER_PX="0.08"
 export FACE_TRACKING_PITCH_GAIN_DEG_PER_PX="-0.06"
-# Nickrichtung beim FT falsch herum, daher geändertes Vorzeichen
-# export FACE_TRACKING_PITCH_GAIN_DEG_PER_PX="0.06"
 export FACE_TRACKING_EYE_MAX_DELTA_DEG="20.0"
 export FACE_TRACKING_PITCH_MAX_DELTA_DEG="20.0"
 # FT-Invoke 0.05 = 20 fps SeedVision 
@@ -177,12 +175,12 @@ export FACE_TRACKING_WHEEL_OUTPUT_MIN_DEG="80.0"
 export FACE_TRACKING_WHEEL_OUTPUT_MAX_DEG="100.0"
 export FACE_TRACKING_WHEEL_POWER="2.0"
 
-# Servo-Tuning (optional Overrides; Basis sind SERVO_LAYOUT_V1-Presets)
+# servo-tuning (optional overrides; base is SERVO_LAYOUT_V1-Presets)
 #export FACE_TRACKING_EYE_MIN_ANGLE_DEG="30.0"
 #export FACE_TRACKING_EYE_MAX_ANGLE_DEG="150.0"
 export FACE_TRACKING_EYE_MIN_PULSE_US="600.0"
 export FACE_TRACKING_EYE_MAX_PULSE_US="2400.0"
-#export FACE_TRACKING_EYE_MAX_SPEED_DEG_PER_S="200.0"   # rechter Servo Preset: 250.0
+#export FACE_TRACKING_EYE_MAX_SPEED_DEG_PER_S="200.0"   
 #export FACE_TRACKING_EYE_MAX_ACCEL_DEG_PER_S2="1000.0"
 #export FACE_TRACKING_EYE_DEADZONE_DEG="0.8"
 # export FACE_TRACKING_EYE_NEUTRAL_DEG="90.0"

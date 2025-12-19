@@ -1,5 +1,3 @@
-# STT HTTP Server – Environment (wird von der Unit eingelesen)
-
 WHISPER_DEVICE=cuda
 # alternative: cpu
 WHISPER_COMPUTE=float16
@@ -7,11 +5,12 @@ WHISPER_COMPUTE=float16
 WHISPER_MODEL=large-v3-turbo
 WHISPER_INITIAL_PROMPT="Coglet is the name. Reply in englisch."
 WHISPER_VAD_MIN_SIL_MS=300
+# beam_size 1 = minimal latency, 5 = maximum precision 
 WHISPER_BEAM_SIZE=1
-# 1 = minimal latency, 5 = maximum precision 
 WHISPER_WORD_TIMESTAMPS=false
 WHISPER_CONDITION_ON_PREV=false
 WHISPER_DOWNLOAD_ROOT=
+# STT language (de or en)
+STT_DEFAULT_LANG=en
 STT_HTTP_PORT=5005
 LD_LIBRARY_PATH=/opt/coglet-stt/.venv/lib/python3.11/site-packages/nvidia/cudnn/lib:/opt/coglet-stt/.venv/lib/python3.11/site-packages/nvidia/cublas/lib
-

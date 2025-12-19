@@ -8,18 +8,20 @@ Coglet Pi side:
 - NEW: ReSpeaker Hardware VAD & DOA Integration (xvf_mic).
 - RESTORED: Follow-Up Logic.
 - FIXED: Barge-In self-interruption (flush).
-- Added: turn Coglet to speaker direction
+- FIXED: Body turning no longer blocks wakeword detection.
+- ADDED: Turn-to-Voice configurable via ENV (TURN_TO_VOICE, TURN_SPEED, DOA_OFFSET)
+- Added: Full Localization support (DE/EN) for Text, TTS-Voice & STT via COGLET_LANG
 
 ENV (see /etc/default/coglet-pi):
   STT_URL, OLLAMA_URL, OLLAMA_MODEL, LLM_KEEP_ALIVE
   MIC_SR, MIC_DEVICE
   WAKEWORD_BACKEND, OWW_MODEL, OWW_THRESHOLD
-  PIPER_VOICE, PIPER_VOICE_JSON
   PIPER_FIFO (/run/piper/in.jsonl)
   TTS_WPM (e.g., 185), TTS_PUNCT_PAUSE_MS (e.g., 180)
+  COGLET_LANG (de/en)
 """
 
-__version__ = "1.0.5.2backport"
+__version__ = "1.0.5.3"
 
 import os
 import sys
@@ -92,6 +94,103 @@ from logging_setup import get_logger, setup_logging
 setup_logging()
 logger = get_logger()
 
+# --- Localization System ---
+# Default language from ENV, fallback to 'en'
+LANG_CODE = os.getenv("COGLET_LANG", "en").lower().strip()
+
+# Dictionary containing all localized strings AND config paths
+_STRINGS = {
+    "de": {
+        # Config: Voice & STT
+        "stt_lang": "de",
+        "piper_voice": "/opt/piper/voices/de_DE-thorsten-high.onnx",
+        "piper_json": "/opt/piper/voices/de_DE-thorsten-high.onnx.json",
+        
+        # System Prompts
+        "model_ready": "Alle Subsysteme bereit. Ich erwarte das Wähkwörd.",
+        "model_confirm": "Ja?",
+        "model_byebye": "Tschüssen!",
+        "ack_eoc": "Alles klar. Ich warte aufs neue Wähkwörd.",
+        "ack_ams": "Ich warte nun wieder auf das Wähkwörd.",
+        "ack_ds": "Ich mache ein Nickerchen. Wecke mich mit dem Wähkwört.",
+        
+        # Email Agent
+        "email_missing_recipient": "Keine Empfängeradresse konfiguriert.",
+        "email_success": "Alles klar, ich habe dir eine ausführliche E-Mail geschickt und warte nun wieder auf das Wähkwört.",
+        "email_error": "Ich konnte die E-Mail leider nicht senden.",
+        "email_subject_fallback": "Info von Coglet",
+        "email_sys_prompt": (
+            "Du bist ein professioneller, freundlicher Redakteur. "
+            "Deine Aufgabe ist es, ausführliche, hilfreiche und schön formatierte E-Mails zu schreiben. "
+            "Nutze HTML zur Strukturierung: <h2> für Überschriften, <ul>/<li> für Listen, <b> für Wichtiges und <p> für Absätze. "
+            "Nutze Emojis 🌟, wo es passend ist. "
+            "Antworte NICHT kurz, sondern detailliert und vollständig."
+        ),
+        "email_user_prompt_template": (
+            "Benutzeranfrage: '{user_text}'.\n\n"
+            "Generiere eine E-Mail mit:\n"
+            "1. Einem passenden Betreff (Subject: ...)\n"
+            "2. Einem Trenner (---)\n"
+            "3. Dem ausführlichen HTML-Inhalt (ohne <html>/<body> Tags, nur der Content).\n"
+            "Beispiel-Format:\n"
+            "Subject: Leckeres Rezept für Dich 🥗\n"
+            "---\n"
+            "<h2>Hier ist dein Rezept</h2><p>...</p>"
+        )
+    },
+    "en": {
+        # Config: Voice & STT (Using Lessac as default EN voice)
+        "stt_lang": "en",
+        "piper_voice": "/opt/piper/voices/en_US-lessac-high.onnx",
+        "piper_json": "/opt/piper/voices/en_US-lessac-high.onnx.json",
+        
+        # System Prompts
+        "model_ready": "All subsystems ready. Waiting for wakeword.",
+        "model_confirm": "Yes?",
+        "model_byebye": "Goodbye!",
+        "ack_eoc": "Alright. Waiting for the next wakeword.",
+        "ack_ams": "Waiting for the wakeword again.",
+        "ack_ds": "Taking a nap. Wake me with the wakeword.",
+        
+        # Email Agent
+        "email_missing_recipient": "No recipient address configured.",
+        "email_success": "Alright, I sent you a detailed email and am now waiting for the wakeword.",
+        "email_error": "Unfortunately, I could not send the email.",
+        "email_subject_fallback": "Info from Coglet",
+        "email_sys_prompt": (
+            "You are a professional, friendly editor. "
+            "Your task is to write detailed, helpful, and beautifully formatted emails. "
+            "Use HTML for structure: <h2> for headers, <ul>/<li> for lists, <b> for emphasis, and <p> for paragraphs. "
+            "Use emojis 🌟 where appropriate. "
+            "Do NOT be brief; be detailed and complete."
+        ),
+        "email_user_prompt_template": (
+            "User request: '{user_text}'.\n\n"
+            "Generate an email with:\n"
+            "1. A fitting Subject line (Subject: ...)\n"
+            "2. A separator (---)\n"
+            "3. The detailed HTML content (no <html>/<body> tags, just content).\n"
+            "Example Format:\n"
+            "Subject: Delicious Recipe for You 🥗\n"
+            "---\n"
+            "<h2>Here is your recipe</h2><p>...</p>"
+        )
+    }
+}
+
+def get_msg(key: str, env_var: Optional[str] = None) -> str:
+    """Retrieve a localized string, optionally overridden by an env var."""
+    # Fallback to English if language not found in dict
+    lang_dict = _STRINGS.get(LANG_CODE, _STRINGS["en"])
+    # Fallback string if key not found
+    default_text = lang_dict.get(key, f"MISSING_STRING: {key}")
+    
+    # If an ENV var is specified (e.g. MODEL_READY), it takes precedence over the dict
+    if env_var:
+        return os.getenv(env_var, default_text)
+    return default_text
+
+
 # --- Optional Status LED ---
 _STATUS_LED_IMPORT_ERROR: Exception | None = None
 _status_led_available = (
@@ -129,7 +228,7 @@ class ServoInitBundle:
     tracking_yaw_name: str | None
     tracking_pitch_name: str | None
 
-# -------------------- Konfig per ENV --------------------
+# -------------------- Config per ENV --------------------
 def _parse_bool(value: Optional[str], default: bool) -> bool:
     if value is None:
         return default
@@ -138,6 +237,16 @@ def _parse_bool(value: Optional[str], default: bool) -> bool:
         return default
     return normalized in {"1", "true", "yes", "on"}
 
+def _parse_float_env(name: str, default: float, *, logger: logging.Logger) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        logger.warning("Invalid float for %s=%r → using %s", name, value, default)
+        return default
+
 DEMOMODE         = _parse_bool(os.getenv("DEMOMODE"), False)
 BARGE_IN         = _parse_bool(os.getenv("BARGE_IN"), True)
 TTS_MODE         = os.getenv("TTS_MODE", "mqtt")
@@ -145,20 +254,34 @@ STT_URL          = os.getenv("STT_URL", "http://192.168.10.161:5005")
 OLLAMA_URL       = os.getenv("OLLAMA_URL", "http://192.168.10.161:11434")
 OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL", "coglet:latest")
 LLM_KEEP_ALIVE   = os.getenv("LLM_KEEP_ALIVE", "30m")
-MODEL_CONFIRM    = os.getenv("MODEL_CONFIRM", "Yes?")
-MODEL_READY      = os.getenv("MODEL_READY", "All subsystems ready. Awaiting the wakeword.")
-MODEL_BYEBYE     = os.getenv("MODEL_BYEBYE", "See ya and byebye!")
-EOC_ACK          = os.getenv("EOC_ACK", "OK. Awaiting the wakework.")
-AMS_ACK          = os.getenv("AMS_ACK", "Awaiting the wakeword.")
-DS_ACK           = os.getenv("DS_ACK", "I take a nap. Wake me with the wakeword.")
+
+# Localized Prompts
+MODEL_CONFIRM    = get_msg("model_confirm", "MODEL_CONFIRM")
+MODEL_READY      = get_msg("model_ready", "MODEL_READY")
+MODEL_BYEBYE     = get_msg("model_byebye", "MODEL_BYEBYE")
+EOC_ACK          = get_msg("ack_eoc", "EOC_ACK")
+AMS_ACK          = get_msg("ack_ams", "AMS_ACK")
+DS_ACK           = get_msg("ack_ds", "DS_ACK")
+
+# Localized Voice & STT Config
+PIPER_VOICE      = get_msg("piper_voice", "PIPER_VOICE")
+PIPER_VOICE_JSON = get_msg("piper_json", "PIPER_VOICE_JSON")
+if not os.getenv("STT_LANG"):
+    os.environ["STT_LANG"] = get_msg("stt_lang")
+
+# --- Turn-to-Voice Config ---
+TURN_TO_VOICE    = _parse_bool(os.getenv("TURN_TO_VOICE"), True)
+DOA_OFFSET       = _parse_float_env("DOA_OFFSET", 0.0, logger=logger)
+TURN_SPEED       = _parse_float_env("TURN_SPEED", 40.0, logger=logger)
+TURN_SEC_PER_DEG = _parse_float_env("TURN_SEC_PER_DEG", 0.015, logger=logger)
+
 OWW_MODEL        = os.getenv("OWW_MODEL", "/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/coglet.onnx")
 OWW_THRESHOLD    = float(os.getenv("OWW_THRESHOLD", "0.35"))
 OWW_DEBUG        = int(os.getenv("OWW_DEBUG", "0"))
 MIC_SR           = int(os.getenv("MIC_SR", "16000"))
 VAD_AGGR         = int(os.getenv("VAD_AGGRESSIVENESS", "2"))
 WAKEWORD_BACKEND = os.getenv("WAKEWORD_BACKEND", "oww")
-PIPER_VOICE      = os.getenv("PIPER_VOICE", "/opt/piper/voices/en_US-ryan-high.onnx")
-PIPER_VOICE_JSON = os.getenv("PIPER_VOICE_JSON", "/opt/piper/voices/en_US-ryan-high.onnx.json")
+
 PIPER_FIFO       = os.getenv("PIPER_FIFO", "/run/piper/in.jsonl")
 PIPER_MQTT_HOST  = os.getenv("PIPER_MQTT_HOST", "127.0.0.1")
 PIPER_MQTT_PORT  = int(os.getenv("PIPER_MQTT_PORT", "1883"))
@@ -197,16 +320,6 @@ SENTENCE_RE      = re.compile(r'[.!?…]\s($|\S)')
 FACE_TRACKING_ENABLED = _parse_bool(os.getenv("FACE_TRACKING_ENABLED"), True)
 FACE_TRACKING_PATROL_INTERVAL_S = float(os.getenv("FACE_TRACKING_TIMEOUT_S", "30.0"))
 DEEP_SLEEP_TIMEOUT_S = float(os.getenv("DEEP_SLEEP_TIMEOUT_S", "300.0"))
-
-def _parse_float_env(name: str, default: float, *, logger: logging.Logger) -> float:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except ValueError:
-        logger.warning("Invalid float for %s=%r → using %s", name, value, default)
-        return default
 
 def _parse_int_env(name: str, default: int, *, logger: logging.Logger) -> int:
     value = os.getenv(name)
@@ -1007,7 +1120,7 @@ def anim_think_stop():
 
 def anim_talk_start():
     logger.info("[anim] talk_start")
-    # WICHTIG: Erst Denken stoppen, dann Sprechen starten
+    # IMPORTANT: Stop thinking first, then start talking
     _stop_thinking_animation() 
     _eyelids_set_mode("auto")
     _start_mouth_animation()
@@ -1101,32 +1214,17 @@ def _handle_email_request(user_text: str, rec, kw) -> bool:
     email_to = os.getenv("EMAIL_TO")
     if not email_to:
         logger.warning("[email] EMAIL_TO not configured in environment")
-        speak_and_back_to_idle("Keine Empfängeradresse konfiguriert.", rec, kw)
+        speak_and_back_to_idle(get_msg("email_missing_recipient"), rec, kw)
         return True
 
     logger.info("[email] Handling request: %r", user_text)
 
     # 1. System Prompt: Force a "Professional Editor" persona.
-    system_prompt = (
-        "Du bist ein professioneller, freundlicher Redakteur. "
-        "Deine Aufgabe ist es, ausführliche, hilfreiche und schön formatierte E-Mails zu schreiben. "
-        "Nutze HTML zur Strukturierung: <h2> für Überschriften, <ul>/<li> für Listen, <b> für Wichtiges und <p> für Absätze. "
-        "Nutze Emojis 🌟, wo es passend ist. "
-        "Antworte NICHT kurz, sondern detailliert und vollständig."
-    )
+    system_prompt = get_msg("email_sys_prompt")
 
     # 2. User Prompt
-    user_prompt = (
-        f"Benutzeranfrage: '{user_text}'.\n\n"
-        "Generiere eine E-Mail mit:\n"
-        "1. Einem passenden Betreff (Subject: ...)\n"
-        "2. Einem Trenner (---)\n"
-        "3. Dem ausführlichen HTML-Inhalt (ohne <html>/<body> Tags, nur der Content).\n"
-        "Beispiel-Format:\n"
-        "Subject: Leckeres Rezept für Dich 🥗\n"
-        "---\n"
-        "<h2>Hier ist dein Rezept</h2><p>...</p>"
-    )
+    user_prompt_template = get_msg("email_user_prompt_template")
+    user_prompt = user_prompt_template.replace("{user_text}", user_text)
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -1147,7 +1245,7 @@ def _handle_email_request(user_text: str, rec, kw) -> bool:
     anim_think_stop()
 
     # Parse the response (Header vs Body)
-    subject = "Info von Wheatley"
+    subject = get_msg("email_subject_fallback")
     body = response
 
     if "Subject:" in response and "---" in response:
@@ -1166,17 +1264,17 @@ def _handle_email_request(user_text: str, rec, kw) -> bool:
             logger.warning("[email] Parsing failed, sending raw content: %s", e)
     
     # Fallback subject enhancement
-    if subject == "Info von Wheatley":
-        subject = f"Info zu: {user_text[:20]}..."
+    if subject == get_msg("email_subject_fallback"):
+        subject = f"{subject}: {user_text[:20]}..."
 
     # Send the email
     try:
         email_sender.send_email_smtp(email_to, subject, body)
         logger.info("[email] Sent successfully to %s", email_to)
-        speak_and_back_to_idle("Alles klar, ich habe dir eine ausführliche E-Mail geschickt und warte nun wieder auf das Wähkwört", rec, kw)
+        speak_and_back_to_idle(get_msg("email_success"), rec, kw)
     except Exception as e:
         logger.error("[email] SMTP sending failed: %s", e)
-        speak_and_back_to_idle("Ich konnte die E-Mail leider nicht senden.", rec, kw)
+        speak_and_back_to_idle(get_msg("email_error"), rec, kw)
 
     return True
 
@@ -1425,39 +1523,39 @@ def say(text: str, recorder: Optional[Recorder] = None, wakeword: Optional[Wakew
             if tts_id:
                 used = True
                 
-                # A. WARTEN AUF AUDIO-START (Generation dauert!)
-                # Wir geben ihm bis zu 5 Sekunden Zeit zum Rechnen (für Thorsten High)
-                # Das ist kein "Sleep", sondern ein Timeout für die Schleife.
+                # A. WAIT FOR AUDIO-START (Generation takes time!)
+                # We give it up to 5 seconds to compute (for Thorsten High)
+                # This is not a "Sleep", but a timeout for the loop.
                 deadline = time.time() + 5.0 
                 
                 while time.time() < deadline:
                     state = _tts_states.get(tts_id)
-                    # HIER IST DER FIX: Wir ignorieren "START".
-                    # Wir brechen erst aus, wenn er wirklich spricht ("SPEAKING") 
-                    # oder wenn es vorbei/kaputt ist.
+                    # HERE IS THE FIX: We ignore "START".
+                    # We only break if it really speaks ("SPEAKING") 
+                    # or if it's over/broken.
                     if state in {"SPEAKING", "DONE", "CANCELLED", "ERROR"}:
                         break
                     time.sleep(0.05)
                 
-                # B. JETZT MUND BEWEGEN
-                # Entweder weil "SPEAKING" kam, oder weil Timeout abgelaufen ist (Fallback)
+                # B. NOW MOVE MOUTH
+                # Either because "SPEAKING" came, or because timeout expired (fallback)
                 _ensure_talk_anim_started(tts_id)
                 _tts_manual_started.add(tts_id)
 
-                # C. BARGE-IN SCHLEIFE (Während er spricht)
+                # C. BARGE-IN LOOP (While speaking)
                 if BARGE_IN and recorder and wakeword:
-                    # Puffer und Engine leeren gegen Selbst-Unterbrechung
+                    # Flush buffer and engine against self-interruption
                     _flush_input_buffers(recorder)
                     if hasattr(wakeword, "reset"):
                         wakeword.reset()
                     
-                    # Wie lange warten wir maximal aufs Ende des Sprechens?
+                    # How long do we wait max for speaking to end?
                     start_wait = time.time()
                     timeout_sec = max(6.0, est * 2 + 2.0)
                     
                     while time.time() < start_wait + timeout_sec:
                         ev = _tts_events.get(tts_id)
-                        # Wenn fertig (DONE/CANCELLED/ERROR) -> Raus
+                        # If done (DONE/CANCELLED/ERROR) -> Out
                         if ev and ev.is_set():
                             break
                         
@@ -1473,7 +1571,7 @@ def say(text: str, recorder: Optional[Recorder] = None, wakeword: Optional[Wakew
                     
                     _tts_events.pop(tts_id, None)
                 else:
-                    # Fallback ohne Barge-In: Einfach warten bis fertig
+                    # Fallback without Barge-In: Simply wait until done
                     _wait_for_tts_done(tts_id, fallback_seconds=est, hard_timeout=max(6.0, est * 2 + 2.0))
                 
                 time.sleep(0.1)
@@ -1846,7 +1944,7 @@ def _http_stt_request(pcm_bytes: bytes, sample_rate: int) -> dict | None:
 def stt_transcribe(pcm_bytes: bytes, sample_rate: int) -> dict | None:
     return _http_stt_request(pcm_bytes, sample_rate)
 
-# -------------------- Hauptloop --------------------
+# -------------------- Main Loop --------------------
 def main():
     logger.info("[pi] Coglet PI starting v%s", __version__)
 
@@ -1954,7 +2052,7 @@ def main():
                             break
 
                     if wake_detected: break
-                
+
                     # 3. Deep Sleep Logic
                     # Enter Deep Sleep
                     now = time.monotonic()
@@ -2023,16 +2121,14 @@ def main():
                 # half_duplex_tts() does NOT globally mute when BARGE_IN=1
                 # (see half_duplex_tts in this file). So we always mute locally here.
                 rec.set_listen(False)
-
-                # --- NEW: Turn Body to Speaker NOW ---
+                
+                # --- NEW: Turn Body to Speaker NOW (Configurable via ENV) ---
                 # We turn only AFTER detecting the wakeword, using the last known direction.
                 # This prevents blocking the audio loop.
-                if mic_hw and target_doa is not None:
+                if TURN_TO_VOICE and mic_hw and target_doa is not None:
                     raw_angle = target_doa
-                    # --- CONFIG ---
-                    DOA_OFFSET = 0       # <--- Set your calibrated offset here
-                    TURN_SPEED = 40.0    # Wheel speed (0..100)
-                    SEC_PER_DEG = 0.015  # Time per degree (Tuning required!)
+                    # --- CONFIG used from ENV ---
+                    # DOA_OFFSET, TURN_SPEED, SEC_PER_DEG are now global variables
 
                     # Calculate relative angle (-180..180)
                     rel_angle = (raw_angle - DOA_OFFSET) % 360
@@ -2048,7 +2144,7 @@ def main():
                             rwh = _get_anim_servo("RWH")
 
                             if lwh and rwh:
-                                duration = abs(rel_angle) * SEC_PER_DEG
+                                duration = abs(rel_angle) * TURN_SEC_PER_DEG
                                 duration = min(0.8, duration)
 
                                 # Determine direction
@@ -2072,7 +2168,8 @@ def main():
                                 # Blind HW VAD briefly
                                 if hasattr(mic_hw, "_silence_counter"):
                                     mic_hw._silence_counter = 50
-              
+
+
                 rec.flush()
                 say(MODEL_CONFIRM)
 
@@ -2090,12 +2187,12 @@ def main():
                 endpoint = SpeechEndpoint(sr=rec.sr, vad_aggr=rec.vad_aggr)
                 anim_listen_start()
                 try:
-                    # ===> NEU: Hardware-Poll PAUSIEREN für saubere Aufnahme <===
+                    # ===> NEW: PAUSE Hardware-Poll for clean recording <===
                     if mic_hw:
                         mic_hw.set_paused(True)
                     pcm, dur = endpoint.record(rec)
                 finally:
-                    # ===> NEU: Hardware-Poll wieder AKTIVIEREN <===
+                    # ===> NEW: ACTIVATE Hardware-Poll again <===
                     if mic_hw:
                         mic_hw.set_paused(False)
                     anim_listen_stop()
@@ -2169,12 +2266,12 @@ def main():
                         endpoint = SpeechEndpoint(sr=rec.sr, vad_aggr=rec.vad_aggr)
                         anim_listen_start()
                         try:
-                            # ===> NEU: Hardware-Poll PAUSIEREN für saubere Aufnahme <===
+                            # ===> NEW: PAUSE Hardware-Poll for clean recording <===
                             if mic_hw:
                                 mic_hw.set_paused(True)
                             pcm, dur = endpoint.record(rec, no_speech_timeout_s=arm_s)
                         finally:
-                            # ===> NEU: Hardware-Poll wieder AKTIVIEREN <===
+                            # ===> NEW: ACTIVATE Hardware-Poll again <===
                             if mic_hw:
                                 mic_hw.set_paused(False)
                             anim_listen_stop()

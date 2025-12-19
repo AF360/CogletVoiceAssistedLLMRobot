@@ -20,19 +20,12 @@ export COGLET_LANG="en"
 # export PIPER_VOICE_JSON="/opt/piper/voices/en_US-ryan-high.onnx.json"
 # NOTE: Prompt strings are also handled dynamically.
 # Uncomment only to override.
-# export MODEL_CONFIRM="Ja?"
-# export MODEL_READY="Alle Subsysteme bereit. Ich erwarte das Wähkwörd."
-# export MODEL_BYEBYE="Tschüssen!"
-# export EOC_ACK="OK. Ich warte aufs neue Wähkwörd."
-# export AMS_ACK="Ich warte wieder auf das Wähkwört."
-# export DS_ACK="Ich mache ein Nickerchen. Weck mich mit dem Wähkwört."
-
-export SPEAKER_DEVICE="spk"
-export APLAY_FORMAT="S16_LE"
-export MODEL_CONFIRM="Yes?"
-export MODEL_READY="All subsystems running. Listening for the wakeword."
-export MODEL_BYEBYE="See ya!"
-
+# export MODEL_CONFIRM="Yes?"
+# export MODEL_READY="All subsystems running. Listening for the wakeword."
+# export MODEL_BYEBYE="See ya and byebye!"
+# export EOC_ACK="OK. Waiting for the wakeword."
+# export AMS_ACK="Now waiting for the wakeword."
+# export DS_ACK="I will take a nap. Wake me up with the wakeword."
 
 export PIPER_FIFO="/run/piper/in.jsonl"
 export PIPER_EVENTS_FIFO="/run/piper/events"
@@ -42,7 +35,7 @@ export SPEAKER_DEVICE="spk"
 export APLAY_FORMAT="S16_LE"
 
 ### --- Demo mode ---
-export DEMOMODE="0"   # Skip startup checks, wakeword, audio, MQTT; only face tracking + eyelid/ear animations
+export DEMOMODE="0"   # Skip startup checks, wakeword, audio, MQTT; only face tracking + eyelid/ear animations if enabled
 
 ### --- Microphon / Recorder ---
 export MIC_DEVICE="mic"
@@ -53,7 +46,7 @@ export MIC_AUTO_GAIN="0"
 export MIC_TARGET_DBFS="-18"
 export MIC_MAX_GAIN_DB="35"
 export SPEAKER_DEVICE="spk"  # with dmix use "spk"
-export BARGE_IN="0"
+export BARGE_IN="0"          # enable / disable Barge-in
 
 ### --- VAD / Endpointing (WebRTC) ---
 export VAD_AGGR="2"
@@ -85,9 +78,9 @@ export COOLDOWN_AFTER_TTS_S="0.6"
 
 ### --- Conversation awareness settings
 export FOLLOWUP_ENABLE=1            
-export FOLLOWUP_ARM_S=3.0           # Zeitfenster, in dem die nächste Äußerung starten darf
-export FOLLOWUP_MAX_TURNS=0         # max. Folge-Turns nach einem Wake (0 = unbegrenzt)
-export FOLLOWUP_COOLDOWN_S=0.10     # ganz kurzer Cooldown vorm Follow-up-Hören
+export FOLLOWUP_ARM_S=3.0           # Windows in which you need to speak / say the followup before follow-up is ended and the wakeword required again 
+export FOLLOWUP_MAX_TURNS=0         # max. follow-up turns without needing to say the wakeword each time): 0 = unlimited
+export FOLLOWUP_COOLDOWN_S=0.10     # short Cooldown before listening for follow-up
 export LLM_USE_CHAT=1               # LLM context-aware
 export LLM_RESET_ON_WAKE=1          # New context each time the Wakeword initiates a new sessio
 export LLM_CTX_TURNS=10

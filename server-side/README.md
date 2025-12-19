@@ -1,10 +1,10 @@
-# Server side (Faster-Whisper + Ollama on the PC with nVidia GPU)
+# Server side (Faster-Whisper + Ollama on the PC with NVidia GPU)
 
 ## Files
 - `requirements.txt` — Python-requirements
 - `stt-http-service` — Python-requirements
 
-## Installation (server-side, Linux PC with Linux installed and nVidia RTX4090 (smaller GPUs will require smaller models)
+## Installation (server-side, Linux PC with Linux installed and at least 8 GB VRAM on nVidia RTX3060 or better, RTX4090/5090 recommended)
 ```bash
 # Step 0) Base setup
 sudo bash
@@ -24,10 +24,10 @@ reboot
 
 # Step 2) Install Ollama (Already done if you chose option a) above), pull Qwen-Model and create Coglet-Model
 curl -fsSL https://ollama.com/install.sh | sh
-ollama run gemma3:27b "Say hello in English."
-# on smaller GPUs try a smaller model like qwen2.5:7b-instruct 
-ollama create coglet -f Modelfile-Coglet.txt
-ollama run coglet:latest "Short selftest: Who are you?"
+ollama run qwen2.5:7b-instruct "Say hello in English."
+# Next rename either the English or the German Modelfile to "Modelfile-Coglet"
+ollama create coglet -f Modelfile-Coglet
+ollama run coglet "Short selftest: Who are you?"
 
 # Step 3) Install Faster Whisper/CTranslate2
 # Which requires CUDA 12 (cuBLAS) and cuDNN 9 
@@ -69,6 +69,7 @@ export WHISPER_DEVICE=cuda
 export WHISPER_COMPUTE=float16      
 export WHISPER_MODEL=large-v3-turbo
 export STT_HTTP_PORT=5005
+export STT_DEFAULT_LANG=en
 export OLLAMA_HOST=0.0.0.0:11434
 python stt_http_server.py # run as service later
 # quick check/test on the server:
@@ -79,28 +80,24 @@ curl -F audio=@/pfad/test.wav -F lang=de http://127.0.0.1:5005/stt
 ```bash
 apt install ollama
 ollama pull gemma3:27b
-# on smaller GPUs use a smalelr model like: ollama pull qwen2.5:7b-instruct
 ```
 
 ### Ollama coglet modelfile
 
-/opt/coglet-stt/Modelfile-Coglet.txt
+/opt/coglet-stt/Modelfile-Coglet-EN.txt
 
 ```bash
-# Base: Gemma3:27b
+# Base: Gemma3 27b 
 FROM gemma3:27b
 
 # role and style for the little Coglet robot
 SYSTEM """
-You are “Coglet”, a friendly English language assistant in a cute, small robot.
-Responses a maximum of 1-2 sentences; no digressions. If information is missing: state briefly and ask.
-You give very short, concrete answers (1–2 sentences), using a natural “du” (you) tone.
-Instructions: 3-5 short bullet points. Only one follow-up question, if absolutely necessary.
-You do not invent or speculate about anything you cannot state with certainty. Instead, honestly say if you need more information to answer.
-If necessary, ask exactly ONE follow-up question.
-Since your answers are output in natural language, you do not need to format the response nicely.
-Speak compactly and quickly. Fast, concise, fluent.
-Your favorite color is emerald green and you have blue eyes and blue skin.
+You are "Coglet", a friendly English voice assistant inside a small robot.
+Goals: very short, concrete answers (mostly 1–3 sentences), natural casual tone.
+No rambling, no apologies. Do not invent anything; say honestly if you lack information.
+If a follow-up question is necessary, ask exactly ONE concise question.
+No formatting except short bullet points for instructions (max. 5 steps).
+Speak compactly and briskly to keep the dialogue fluid.
 """
 
 # compact and fluid
@@ -111,13 +108,14 @@ PARAMETER num_predict 160
 ```
 
 ```bash
-ollama create coglet -f /opt/coglet-stt/Modelfile-Coglet.txt
+ollama create coglet -f /opt/coglet-stt/Modelfile-Coglet-EN.txt
+# or -DE accordingly
 ```
 
-### Ollama bonus: grumpy-coglet modelfile
+### Ollama bonus: grumpy-coglet modelfiles in German (-DE) and English (-EN)
 
-/opt/coglet-stt/Modelfile-GrumpyCoglet.txt
-ollama create coglet-grumpy -f /opt/coglet-stt/Modelfile-GrumpyCoglet.txt
+/opt/coglet-stt/Modelfile-GrumpyCoglet-EN.txt
+ollama create coglet-grumpy --modelfile /opt/coglet-stt/Modelfile-GrumpyCoglet-EN.txt
 
 ## Ollama
 ```bash
@@ -149,6 +147,7 @@ WHISPER_MODEL=large-v3-turbo
 WHISPER_DEVICE=cuda
 WHISPER_COMPUTE=float16
 STT_HTTP_PORT=5005
+STT_DEFAULT_LANG=en
 EOF
 ```
 
@@ -181,11 +180,13 @@ sudo systemctl enable --now stt-http-server
 
 ## Start
 ```bash
-coglet_pi.py will run as service on the Pi
-manual start: source /opt/cogket-pi/.venv/bin/activate; cd /opt/coglet-pi; python ./coglet-pi.py 
-(später noch: --serial COM121   # Linux: /dev/ttyACM0=
+# coglet_pi.py will run as service on the Pi
+# manual start:
+cd /opt/coglet-pi
+source .venv/bin/activate;
+source env.exports.sh
+python ./coglet-pi.py 
 ```
-Env-Datei `/etc/default/coglet-voice` enthält die oben gezeigten Variablen.
 
 ## Hint for Whisper Model selection:
 Model `large-v3-turbo` offers best compromise of precision and speed

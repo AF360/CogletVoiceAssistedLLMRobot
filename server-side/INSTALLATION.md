@@ -1,7 +1,7 @@
-# Coglet Server Setup (Debian 12 + nVIDIA)
+# Coglet Server Setup (Debian 12 + NVIDIA)
 
-From zero to a working stack with **Ollama** (Gemma3:27b → Coglet) and **Faster‑Whisper** (GPU).  
-Tested on Debian 12 (“Bookworm”) PC with intel Core-i7 CPU and nVIDIA RTX4090 GPU.
+From zero to a working stack with **Ollama** (Qwen2.5 → Coglet) and **Faster‑Whisper** (GPU).  
+Tested on Debian 12 (“Bookworm”) with NVIDIA GPUs (≥ 8–12 GB VRAM).
 
 ---
 
@@ -76,32 +76,32 @@ You should see your GPU and a CUDA version listed.
 
 ---
 
-## 5) Create the Coglet model from Qwen2.5
+## 5) Create the Coglet model from Gemma3
 
 Test the base model first:
 
 ```bash
-ollama run qwen2.5:7b-instruct "Say hello in German."
+ollama run gemma3:27bt "Say hello in English."
 ```
 
 Create a `Modelfile` (adjust prompt/params as you like):
 
-```dockerfile
-FROM qwen2.5:7b-instruct
-
-PARAMETER num_ctx 8192
-PARAMETER temperature 0.3
+```bash
+FROM gemma3:27b
 
 SYSTEM """
 You are Coglet, a local LAN voice assistant. Answer precisely and concisely in German.
 """
+
+PARAMETER num_ctx 8192
+PARAMETER temperature 0.3
 ```
 
 Build & test the derived model:
 
 ```bash
 ollama create coglet -f Modelfile
-ollama run coglet "Kurzer Selbsttest: Wer bist du?"
+ollama run coglet "Quick test: Who are you?"
 ```
 
 ---
@@ -147,46 +147,7 @@ sudo -u coglet bash -lc '~/stt/.venv/bin/python ~/stt/test_stt.py'
 
 ## 7) Minimal STT HTTP server (Flask) + systemd
 
-Create `~/stt/stt_http_server.py` (run as `coglet` user):
-
-```python
-from flask import Flask, request, jsonify
-from faster_whisper import WhisperModel
-from tempfile import NamedTemporaryFile
-import os
-
-app = Flask(__name__)
-model = WhisperModel("large-v3", device="cuda", compute_type="float16")
-
-@app.post("/stt")
-def stt():
-    if "audio" not in request.files:
-        return jsonify({"error": "missing form field 'audio'"}), 400
-    f = request.files["audio"]
-
-    # Persist upload to a temp file so faster-whisper can decode it reliably.
-    suffix = os.path.splitext(f.filename or "")[-1] or ".wav"
-    with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        f.save(tmp.name)
-        tmp_path = tmp.name
-
-    try:
-        segments, info = model.transcribe(tmp_path, beam_size=5)
-        text = "".join(s.text for s in segments)
-        return jsonify({"text": text, "lang": info.language})
-    finally:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-
-@app.get("/healthz")
-def healthz():
-    return "ok", 200
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5005)
-```
+Copy stt_http_server.py from the server-side source-directory to `~/stt/stt_http_server.py` (run as `coglet` user).
 
 Create a tiny launcher `~/stt/run_stt.sh` to set `LD_LIBRARY_PATH` dynamically:
 
@@ -293,4 +254,4 @@ curl -f http://127.0.0.1:5005/healthz
 
 ---
 
-Happy hacking! 🛠️🤖
+Happy hacking!

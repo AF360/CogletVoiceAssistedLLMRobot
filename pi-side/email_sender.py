@@ -52,12 +52,11 @@ def send_email_smtp(to: str, subject: str, body_html: str) -> None:
 
     smtp_username = os.getenv("SMTP_USERNAME")
     smtp_password = os.getenv("SMTP_PASSWORD")
-
     # Check if we are running with default placeholders (security check)
     if smtp_from == "your.senderadress@gmail.com":
         logger.error("SMTP configuration contains default placeholders. Please update env-exports.sh.")
         raise ValueError("SMTP configuration contains default placeholders.")
-
+    
     if not all([smtp_host, smtp_port, smtp_from]):
         missing = []
         if not smtp_host: missing.append("SMTP_HOST")
@@ -122,4 +121,3 @@ def send_email_smtp(to: str, subject: str, body_html: str) -> None:
                 # If the connection is already broken (e.g. timeout), quit() might fail too.
                 # We ignore this secondary error to raise the primary one.
                 pass
-

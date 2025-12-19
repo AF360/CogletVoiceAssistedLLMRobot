@@ -830,6 +830,7 @@ def _apply_pose_safe(pose: str | Mapping[str, float]) -> None:
     except Exception as exc:
         logger.debug("Applying pose failed: %s", exc)
 
+
 def _move_servos_to_stop_positions() -> None:
     with _shutdown_targets_lock:
         targets = list(_shutdown_servos_by_channel.items())
@@ -852,10 +853,18 @@ def _move_servos_to_stop_positions() -> None:
             reason = "preset/env neutral"
         try:
             servo.move_to(target)
+            # FORCE UPDATE:
+            # Servos with speed limits require update() to actually change the PWM signal.
+            # A large timestep (5.0s) forces the logic to jump to target immediately.
+            servo.update(5.0)
             logger.debug("Parking servo channel %d to %.1f° (%s)", channel, target, reason)
         except Exception as exc:
             logger.debug("Parking servo channel %d failed: %s", channel, exc)
+    
+    # IMPORTANT: Give motors physical time to move before PWM is de-initialized.
+    time.sleep(0.6)
     logger.info("Servos parked, exiting Coglet.")
+
 
 def _restore_neutral_pose_and_close_lid() -> None:
     try:

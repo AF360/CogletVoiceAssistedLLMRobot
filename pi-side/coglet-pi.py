@@ -1002,6 +1002,7 @@ def _stop_thinking_animation() -> None:
     if thread is not None:
         thread.join(timeout=1.0)
 
+# Thinking Animation Loop
 def _thinking_loop(stop_event: threading.Event) -> None:
     head = _get_anim_servo("NRL")
     left_ear = _get_anim_servo("EAL")
@@ -1012,10 +1013,12 @@ def _thinking_loop(stop_event: threading.Event) -> None:
         stop_event.wait()
         return
 
+    # Helper to calculate angles safely
     head_neutral = head.config.neutral_deg if head is not None else 0.0
     head_left = _clamp_servo_angle(head, head_neutral + 20.0) if head is not None else None
     head_right = _clamp_servo_angle(head, head_neutral - 20.0) if head is not None else None
 
+    # Ear movements (+25 degrees usually means forward for Left, back for Right)
     left_forward = (
         _clamp_servo_angle(left_ear, left_ear.config.neutral_deg + 25.0)
         if left_ear is not None
@@ -1041,20 +1044,32 @@ def _thinking_loop(stop_event: threading.Event) -> None:
     toggle = False
     while not stop_event.is_set():
         targets: Dict[str, float] = {}
+        
+        # Head tilts left/right
         if head_left is not None and head_right is not None:
             targets["NRL"] = head_left if toggle else head_right
+            
+        # Ears should move ANTISYMMETRICALLY (one fwd, one back).
+        # Due to mirrored mounting, sending the SAME sign (both forward_val)
+        # often results in opposite physical movement.
         if left_forward is not None and left_back is not None:
             targets["EAL"] = left_forward if toggle else left_back
+            
         if right_forward is not None and right_back is not None:
-            targets["EAR"] = right_back if toggle else right_forward
+            targets["EAR"] = right_forward if toggle else right_back
 
         _eyelids_override_fraction(0.5, duration_s=2.0)
+        
+        # Move fast to position
         _drive_anim_targets(targets, 0.9, stop_event)
+        
         if stop_event.is_set():
-            break
-        _drive_anim_targets(targets, 0.7, stop_event)
+            break    
+        # Hold briefly / Move slower back? (Here we just toggle)
+        # Actually, let's wait a bit before switching back
+        # _drive_anim_targets is already a wait/move function.    
         toggle = not toggle
-
+      
 # Idle Animation Loop
 def _idle_loop(stop_event: threading.Event) -> None:
     stop_event.wait(random.uniform(2.0, 5.0))

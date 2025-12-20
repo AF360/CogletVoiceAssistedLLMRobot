@@ -138,6 +138,18 @@ export FACE_TRACKING_SERIAL_TIMEOUT="0.0"
 # PCA9685 basics
 export FACE_TRACKING_PWM_FREQ_HZ="50.0"
 
+# --- Servo Calibration Overrides (Based on your measurements) ---
+# Ensure the software limits match your hardware limits, otherwise patrol is clamped.
+# Left Eye (Min -30, Max 70)
+export FACE_TRACKING_EYE_MIN_ANGLE_DEG="-35.0"
+export FACE_TRACKING_EYE_MAX_ANGLE_DEG="90.0"
+
+# --- Patrol Tuning ---
+# Increase Range to use the full motion.
+# Neutral (19) + 45 = 64 (Fits into max 70)
+# Neutral (43) + 45 = 88 (Fits exactly into max 88)
+export FACE_TRACKING_PATROL_RANGE_EYES_DEG="45.0"
+
 # Channel mapping (defaults follow SERVO_LAYOUT_V1; wheels can be disabled with an empty list)
 export FACE_TRACKING_EYE_CHANNELS="0,1"           # left/right Eye (EYL/EYR)
 export FACE_TRACKING_WHEEL_CHANNELS="8,9"         # left/right Wheel (LWH/RWH); empty = wheels off

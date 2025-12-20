@@ -2,17 +2,8 @@
 Face tracking logic for Coglet (eyes, head pitch, wheels/base follow).
 
 This module is partly derived from and inspired by Will Cogley's
-face-tracking mini bot reference code (main.py), in particular:
+face-tracking mini bot reference code.
 
-- the error-centric tracking loop for eyes and head pitch with deadzones
-- the delayed base/body rotation after eye deviation passes a threshold
-- the non-linear power-map remapping of offsets using an exponent curve
-
-Original work by Will Cogley, used under the Creative Commons
-Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0).
-
-Original: main.py from Will Cogley's Halloween-watcher reference code
-License: https://creativecommons.org/licenses/by-nc-sa/4.0/
 Modifications and refactoring for Coglet by Andreas Fatum, 2025.
 """
 
@@ -23,6 +14,7 @@ import os
 import random
 import threading
 import time
+import traceback
 from dataclasses import dataclass, field
 from typing import Generator, Iterable, Optional, Sequence, Tuple
 
@@ -42,6 +34,12 @@ def _get_env_float(key: str, default: float) -> float:
     except ValueError:
         return default
 
+def _get_env_int(key: str, default: int) -> int:
+    """Helper to read int from environment variable or return default."""
+    try:
+        return int(os.environ.get(key, str(default)))
+    except ValueError:
+        return default
 
 def _get_env_bool(key: str, default: bool) -> bool:
     """Helper to read boolean from environment variable (1, true, yes, on)."""
@@ -106,8 +104,10 @@ class FaceTrackingConfig:
     # --- Patrol / Idle Scanning ---
     patrol_enabled: bool = _get_env_bool("FACE_TRACKING_PATROL_ENABLED", True)
     patrol_interval_s: float = _get_env_float("FACE_TRACKING_PATROL_INTERVAL_S", 30.0)
+    # Require N consecutive frames with face to abort patrol (Debouncing)
+    patrol_confirm_frames: int = _get_env_int("FACE_TRACKING_PATROL_CONFIRM_FRAMES", 2)
     
-    # These patrol ranges are not currently in env-exports.sh, but we support overrides via env
+    # Explicitly exposed for tuning via env-exports.sh
     patrol_range_wheels_deg: float = _get_env_float("FACE_TRACKING_PATROL_RANGE_WHEELS_DEG", 40.0)
     patrol_range_eyes_deg: float = _get_env_float("FACE_TRACKING_PATROL_RANGE_EYES_DEG", 25.0)
     patrol_range_pitch_deg: float = _get_env_float("FACE_TRACKING_PATROL_RANGE_PITCH_DEG", 15.0)
@@ -145,6 +145,7 @@ class FaceTracker:
         self._wheel_active = False
         self._patrol_gen: Optional[Generator[None, None, None]] = None
         self._last_patrol_finish = time.monotonic()
+        self._patrol_detection_count = 0
 
     def start(self) -> None:
         if self._thread is not None:
@@ -152,8 +153,10 @@ class FaceTracker:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, name="FaceTracker", daemon=True)
         self._thread.start()
-        logger.info("Face tracker thread started (patrol=%s, interval=%.1fs)", 
-                    self._config.patrol_enabled, self._config.patrol_interval_s)
+        logger.info("Face tracker started. Patrol=%s (Interval=%.1fs, ConfirmFrames=%d)", 
+                    self._config.patrol_enabled, 
+                    self._config.patrol_interval_s,
+                    self._config.patrol_confirm_frames)
 
     def stop(self, *, join_timeout: float = 1.0) -> None:
         if self._thread is None:
@@ -172,64 +175,89 @@ class FaceTracker:
         # Reset timestamps
         self._last_detection = time.monotonic()
         self._last_patrol_finish = time.monotonic()
+        self._patrol_detection_count = 0
 
         while not self._stop_event.is_set():
-            now = time.monotonic()
-            dt = now - last_update
-            last_update = now
-            self._update_servos(dt)
+            try:
+                now = time.monotonic()
+                dt = now - last_update
+                last_update = now
+                self._update_servos(dt)
 
-            if now >= next_invoke:
-                # 1. Vision Check
-                boxes = self._client.invoke_once(timeout=cfg.invoke_timeout_s)
-                
-                if boxes:
-                    # Face found
-                    self._handle_detection(boxes, timestamp=now)
-                    # Abort patrol immediately
-                    self._patrol_gen = None
-                    self._last_patrol_finish = now # Reset timer
-                
-                else:
-                    # No face
+                if now >= next_invoke:
+                    # 1. Vision Check
+                    boxes = self._client.invoke_once(timeout=cfg.invoke_timeout_s)
                     
-                    # If we are within the neutral timeout phase (user just left):
-                    # -> Go back to center.
-                    # If we are patrolling -> Do not disturb, let generator continue.
-                    
-                    time_since_detection = now - self._last_detection
-                    
-                    if self._patrol_gen is not None:
-                        # Patrol in progress -> continue
-                        try:
-                            next(self._patrol_gen)
-                        except StopIteration:
-                            # Finished
-                            self._patrol_gen = None
-                            self._last_patrol_finish = now
-                            logger.debug("Patrol finished")
-                            # Ensure return to neutral
-                            self._move_all_to_neutral()
-                            
-                    elif time_since_detection > cfg.neutral_timeout_s:
-                        # Idle mode
-                        
-                        # Check if it is time for patrol
-                        time_since_patrol = now - self._last_patrol_finish
-                        if cfg.patrol_enabled and time_since_patrol > cfg.patrol_interval_s:
-                            logger.info("Starting patrol scan...")
-                            self._patrol_gen = self._create_patrol_sequence()
+                    # --- Detection Filtering for Patrol Mode ---
+                    if boxes:
+                        if self._patrol_gen is not None:
+                            self._patrol_detection_count += 1
+                            if self._patrol_detection_count < cfg.patrol_confirm_frames:
+                                # Suppress false positive (noise)
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(f"Patrol: Potential face masked ({self._patrol_detection_count}/{cfg.patrol_confirm_frames})")
+                                boxes = [] # Treat as empty
+                            else:
+                                # Threshold reached: Confirm detection
+                                logger.info("Face confirmed during patrol. Aborting patrol.")
+                                self._patrol_gen = None
+                                self._patrol_detection_count = 0
                         else:
-                            # Just wait / hold neutral
-                            self._handle_missing_detection(now)
+                            # Not in patrol: Reaction is instant
+                            self._patrol_detection_count = 0
+                    else:
+                        # No face visible: reset counter
+                        self._patrol_detection_count = 0
+
+                    # --- Main Logic ---
+                    if boxes:
+                        # Face found
+                        self._handle_detection(boxes, timestamp=now)
+                        self._last_patrol_finish = now # Reset timer
                     
                     else:
-                        # Still within timeout -> move to neutral
-                        self._handle_missing_detection(now)
+                        # No face
+                        time_since_detection = now - self._last_detection
+                        
+                        if self._patrol_gen is not None:
+                            # Patrol in progress -> continue
+                            try:
+                                next(self._patrol_gen)
+                            except StopIteration:
+                                # Finished
+                                self._patrol_gen = None
+                                self._last_patrol_finish = now
+                                logger.debug("Patrol finished sequence.")
+                                self._move_all_to_neutral()
+                            except Exception as e:
+                                logger.error(f"Patrol generator crashed: {e}")
+                                traceback.print_exc()
+                                self._patrol_gen = None
+                                self._move_all_to_neutral()
+                                
+                        elif time_since_detection > cfg.neutral_timeout_s:
+                            # Idle mode
+                            # Check if it is time for patrol
+                            time_since_patrol = now - self._last_patrol_finish
+                            if cfg.patrol_enabled and time_since_patrol > cfg.patrol_interval_s:
+                                logger.info("Starting patrol scan...")
+                                self._patrol_gen = self._create_patrol_sequence()
+                            else:
+                                # Just wait / hold neutral
+                                self._handle_missing_detection(now)
+                        
+                        else:
+                            # Still within timeout -> move to neutral
+                            self._handle_missing_detection(now)
 
-                next_invoke = now + cfg.invoke_interval_s
+                    next_invoke = now + cfg.invoke_interval_s
 
-            time.sleep(cfg.update_interval_s)
+                time.sleep(cfg.update_interval_s)
+            
+            except Exception as e:
+                logger.error(f"FaceTracker loop crashed (recovering): {e}")
+                traceback.print_exc()
+                time.sleep(1.0) # Prevent tight busy loop on crash
 
     def _update_servos(self, dt: float) -> None:
         for servo in self._servos.all_servos():
@@ -253,9 +281,15 @@ class FaceTracker:
             # Wheels
             for w in self._servos.wheels:
                 w.move_to(w.config.neutral_deg + wheel_offset)
-            # Eyes
-            for e in self._servos.eyes:
-                e.move_to(e.config.neutral_deg + eye_offset)
+            
+            # Eyes (Safeguarded Debug Logging)
+            for i, e in enumerate(self._servos.eyes):
+                target = e.config.neutral_deg + eye_offset
+                if logger.isEnabledFor(logging.DEBUG):
+                    # Using public properties or config to avoid crashes
+                    logger.debug(f"Patrol Eye[{i}]: Neutral {e.config.neutral_deg:.1f} + Offset {eye_offset:.1f} = {target:.1f} (Limits: {e.config.min_angle_deg:.1f}/{e.config.max_angle_deg:.1f})")
+                e.move_to(target)
+            
             # Pitch
             if self._servos.pitch:
                 p = self._servos.pitch
@@ -271,6 +305,7 @@ class FaceTracker:
             set_pose(wheel_offset=wheel_offset, eye_offset=eye_offset, pitch_offset=0.0)
             yield from wait_seconds(0.35)
 
+        logger.info(f"Patrol: Phase 1 (Left). Eye Offset: {-cfg.patrol_range_eyes_deg}")
         # ==========================================
         # PHASE 1: LOOK LEFT, TURN LEFT
         # ==========================================
@@ -278,13 +313,14 @@ class FaceTracker:
         set_pose(wheel_offset=0.0, eye_offset=-cfg.patrol_range_eyes_deg)
         yield from wait_seconds(0.6)
 
-        # 2) Rotate wheels left (about 45-90 deg)
+        # 2) Rotate wheels left (positive is usually left/ccw depending on invert)
         set_pose(wheel_offset=cfg.patrol_range_wheels_deg, eye_offset=-cfg.patrol_range_eyes_deg)
         yield from wait_seconds(1.5)
 
         # 3) Nod up/down
         yield from nod_up_down(cfg.patrol_range_wheels_deg, -cfg.patrol_range_eyes_deg)
 
+        logger.info(f"Patrol: Phase 2 (Right). Eye Offset: {cfg.patrol_range_eyes_deg}")
         # ==========================================
         # PHASE 2: LOOK RIGHT, TURN RIGHT
         # ==========================================
@@ -340,9 +376,6 @@ class FaceTracker:
             self._update_wheels(timestamp, error_x)
             self._last_detection = timestamp
             self._last_face = best
-            if logger.isEnabledFor(logging.DEBUG):
-                # logger.debug("Face det...") # optional reduce spam
-                pass
 
     def _handle_missing_detection(self, now: float) -> None:
         if (now - self._last_detection) < self._config.neutral_timeout_s:

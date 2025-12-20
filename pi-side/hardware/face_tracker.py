@@ -23,7 +23,7 @@ import os
 import random
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Generator, Iterable, Optional, Sequence, Tuple
 
 from hardware.pca9685_servo import Servo
@@ -33,6 +33,20 @@ from logging_setup import get_logger, setup_logging
 
 setup_logging()
 logger = get_logger()
+
+
+def _get_env_float(key: str, default: float) -> float:
+    """Helper to read float from environment variable or return default."""
+    try:
+        return float(os.environ.get(key, str(default)))
+    except ValueError:
+        return default
+
+
+def _get_env_bool(key: str, default: bool) -> bool:
+    """Helper to read boolean from environment variable (1, true, yes, on)."""
+    val = os.environ.get(key, str(int(default))).lower()
+    return val in ("1", "true", "yes", "on")
 
 
 @dataclass(frozen=True)
@@ -56,38 +70,47 @@ class FaceTrackingServos:
 
 @dataclass(frozen=True)
 class FaceTrackingConfig:
-    """Tunable parameters to map detection coordinates to servo movements."""
+    """Tunable parameters to map detection coordinates to servo movements.
+    Values are loaded from environment variables if available.
+    """
 
-    frame_width: float = 220.0
-    frame_height: float = 200.0
-    coordinates_are_center: bool = True
-    eye_deadzone_px: float = 10.0
-    yaw_deadzone_px: float = 18.0
-    pitch_deadzone_px: float = 18.0
-    eye_gain_deg_per_px: float = 0.08
-    yaw_gain_deg_per_px: float = 0.05
-    pitch_gain_deg_per_px: float = 0.06
-    eye_max_delta_deg: float = 20.0
-    yaw_max_delta_deg: float = 30.0
-    pitch_max_delta_deg: float = 20.0
-    invoke_interval_s: float = 0.15
-    invoke_timeout_s: float = 0.25
-    update_interval_s: float = 0.02
-    neutral_timeout_s: float = 2.0
-    wheel_deadzone_deg: float = 5.0
-    wheel_follow_delay_s: float = 0.8
-    wheel_input_min_deg: float = 30.0
-    wheel_input_max_deg: float = 150.0
-    wheel_output_min_deg: float = 80.0
-    wheel_output_max_deg: float = 100.0
-    wheel_power: float = 2.0
+    frame_width: float = _get_env_float("FACE_TRACKING_FRAME_WIDTH", 220.0)
+    frame_height: float = _get_env_float("FACE_TRACKING_FRAME_HEIGHT", 200.0)
+    coordinates_are_center: bool = _get_env_bool("FACE_TRACKING_COORDINATES_CENTER", True)
+    
+    eye_deadzone_px: float = _get_env_float("FACE_TRACKING_EYE_DEADZONE_PX", 10.0)
+    yaw_deadzone_px: float = _get_env_float("FACE_TRACKING_YAW_DEADZONE_PX", 18.0)
+    pitch_deadzone_px: float = _get_env_float("FACE_TRACKING_PITCH_DEADZONE_PX", 18.0)
+    
+    eye_gain_deg_per_px: float = _get_env_float("FACE_TRACKING_EYE_GAIN_DEG_PER_PX", 0.08)
+    yaw_gain_deg_per_px: float = _get_env_float("FACE_TRACKING_YAW_GAIN_DEG_PER_PX", 0.05)
+    pitch_gain_deg_per_px: float = _get_env_float("FACE_TRACKING_PITCH_GAIN_DEG_PER_PX", 0.06)
+    
+    eye_max_delta_deg: float = _get_env_float("FACE_TRACKING_EYE_MAX_DELTA_DEG", 20.0)
+    yaw_max_delta_deg: float = _get_env_float("FACE_TRACKING_YAW_MAX_DELTA_DEG", 30.0)
+    pitch_max_delta_deg: float = _get_env_float("FACE_TRACKING_PITCH_MAX_DELTA_DEG", 20.0)
+    
+    invoke_interval_s: float = _get_env_float("FACE_TRACKING_INVOKE_INTERVAL_S", 0.15)
+    invoke_timeout_s: float = _get_env_float("FACE_TRACKING_INVOKE_TIMEOUT_S", 0.25)
+    update_interval_s: float = _get_env_float("FACE_TRACKING_UPDATE_INTERVAL_S", 0.02)
+    neutral_timeout_s: float = _get_env_float("FACE_TRACKING_NEUTRAL_TIMEOUT_S", 2.0)
+    
+    wheel_deadzone_deg: float = _get_env_float("FACE_TRACKING_WHEEL_DEADZONE_DEG", 5.0)
+    wheel_follow_delay_s: float = _get_env_float("FACE_TRACKING_WHEEL_FOLLOW_DELAY_S", 0.8)
+    wheel_input_min_deg: float = _get_env_float("FACE_TRACKING_WHEEL_INPUT_MIN_DEG", 30.0)
+    wheel_input_max_deg: float = _get_env_float("FACE_TRACKING_WHEEL_INPUT_MAX_DEG", 150.0)
+    wheel_output_min_deg: float = _get_env_float("FACE_TRACKING_WHEEL_OUTPUT_MIN_DEG", 80.0)
+    wheel_output_max_deg: float = _get_env_float("FACE_TRACKING_WHEEL_OUTPUT_MAX_DEG", 100.0)
+    wheel_power: float = _get_env_float("FACE_TRACKING_WHEEL_POWER", 2.0)
     
     # --- Patrol / Idle Scanning ---
-    patrol_enabled: bool = True
-    patrol_interval_s: float = 30.0   # Wie oft suchen wir?
-    patrol_range_wheels_deg: float = 40.0 # Wie weit drehen wir uns (Relativ zur Mitte)
-    patrol_range_eyes_deg: float = 25.0   # Wie weit schauen die Augen
-    patrol_range_pitch_deg: float = 15.0  # Wie weit nicken wir
+    patrol_enabled: bool = _get_env_bool("FACE_TRACKING_PATROL_ENABLED", True)
+    patrol_interval_s: float = _get_env_float("FACE_TRACKING_PATROL_INTERVAL_S", 30.0)
+    
+    # These patrol ranges are not currently in env-exports.sh, but we support overrides via env
+    patrol_range_wheels_deg: float = _get_env_float("FACE_TRACKING_PATROL_RANGE_WHEELS_DEG", 40.0)
+    patrol_range_eyes_deg: float = _get_env_float("FACE_TRACKING_PATROL_RANGE_EYES_DEG", 25.0)
+    patrol_range_pitch_deg: float = _get_env_float("FACE_TRACKING_PATROL_RANGE_PITCH_DEG", 15.0)
 
     @property
     def frame_center_x(self) -> float:
@@ -161,47 +184,47 @@ class FaceTracker:
                 boxes = self._client.invoke_once(timeout=cfg.invoke_timeout_s)
                 
                 if boxes:
-                    # GESICHT GEFUNDEN!
+                    # Face found
                     self._handle_detection(boxes, timestamp=now)
-                    # Patrol sofort abbrechen
+                    # Abort patrol immediately
                     self._patrol_gen = None
                     self._last_patrol_finish = now # Reset timer
                 
                 else:
-                    # KEIN GESICHT
+                    # No face
                     
-                    # Wenn wir noch in der Neutral-Timeout-Phase sind (User gerade weg):
-                    # -> Zurück zur Mitte.
-                    # Wenn wir Patrouille fahren -> Nicht stören, Generator weitermachen lassen.
+                    # If we are within the neutral timeout phase (user just left):
+                    # -> Go back to center.
+                    # If we are patrolling -> Do not disturb, let generator continue.
                     
                     time_since_detection = now - self._last_detection
                     
                     if self._patrol_gen is not None:
-                        # Wir sind mitten in einer Patrouille -> weitermachen
+                        # Patrol in progress -> continue
                         try:
                             next(self._patrol_gen)
                         except StopIteration:
-                            # Fertig
+                            # Finished
                             self._patrol_gen = None
                             self._last_patrol_finish = now
                             logger.debug("Patrol finished")
-                            # Zurück zu Neutral sicherstellen
+                            # Ensure return to neutral
                             self._move_all_to_neutral()
                             
                     elif time_since_detection > cfg.neutral_timeout_s:
-                        # Wir sind im "Idle" Mode.
+                        # Idle mode
                         
-                        # Prüfen ob Zeit für Patrouille
+                        # Check if it is time for patrol
                         time_since_patrol = now - self._last_patrol_finish
                         if cfg.patrol_enabled and time_since_patrol > cfg.patrol_interval_s:
                             logger.info("Starting patrol scan...")
                             self._patrol_gen = self._create_patrol_sequence()
                         else:
-                            # Einfach nur warten / Neutral halten
+                            # Just wait / hold neutral
                             self._handle_missing_detection(now)
                     
                     else:
-                        # Noch innerhalb des Timeouts -> Neutral anfahren
+                        # Still within timeout -> move to neutral
                         self._handle_missing_detection(now)
 
                 next_invoke = now + cfg.invoke_interval_s
@@ -217,8 +240,7 @@ class FaceTracker:
         for servo in self._servos.all_servos():
             servo.move_to(servo.config.neutral_deg)
 
-    # --- Patrol Sequence Generator (Modified for "Eyes Lead" behavior) ---
-    # --- Patrol Sequence Generator (Corrected: Wheels+=Left, Eyes-=Left) ---
+    # --- Patrol Sequence Generator ---
     def _create_patrol_sequence(self) -> Generator[None, None, None]:
         cfg = self._config
         
@@ -239,68 +261,58 @@ class FaceTracker:
                 p = self._servos.pitch
                 p.move_to(p.config.neutral_deg + pitch_offset)
 
-        # ==========================================
-        # PHASE 1: NACH LINKS (Räder +, Augen -)
-        # ==========================================
-        
-        # A. Augen führen: Blick nach LINKS (-)
-        set_pose(wheel_offset=0.0, 
-                 eye_offset=-cfg.patrol_range_eyes_deg)
-        yield from wait_seconds(0.5)
-
-        # B. Körper folgt: Drehung nach LINKS (+)
-        set_pose(wheel_offset=cfg.patrol_range_wheels_deg, 
-                 eye_offset=-cfg.patrol_range_eyes_deg)
-        yield from wait_seconds(2.0)
-
-        # C. Nicken (Check)
-        set_pose(wheel_offset=cfg.patrol_range_wheels_deg, 
-                 eye_offset=-cfg.patrol_range_eyes_deg,
-                 pitch_offset=10.0)
-        yield from wait_seconds(0.4)
-        set_pose(wheel_offset=cfg.patrol_range_wheels_deg, 
-                 eye_offset=-cfg.patrol_range_eyes_deg,
-                 pitch_offset=0.0)
-        yield from wait_seconds(0.4)
+        def nod_up_down(wheel_offset: float, eye_offset: float) -> Generator[None, None, None]:
+            """Pitch up and down while keeping wheel/eye offsets constant."""
+            pitch_range = cfg.patrol_range_pitch_deg
+            set_pose(wheel_offset=wheel_offset, eye_offset=eye_offset, pitch_offset=pitch_range)
+            yield from wait_seconds(0.35)
+            set_pose(wheel_offset=wheel_offset, eye_offset=eye_offset, pitch_offset=-pitch_range)
+            yield from wait_seconds(0.35)
+            set_pose(wheel_offset=wheel_offset, eye_offset=eye_offset, pitch_offset=0.0)
+            yield from wait_seconds(0.35)
 
         # ==========================================
-        # PHASE 2: NACH RECHTS (Räder -, Augen +)
+        # PHASE 1: LOOK LEFT, TURN LEFT
         # ==========================================
-
-        # A. Augen führen: Blick nach RECHTS (+)
-        # Körper steht noch LINKS (+)
-        set_pose(wheel_offset=cfg.patrol_range_wheels_deg, 
-                 eye_offset=cfg.patrol_range_eyes_deg)
+        # 1) Eyes left from neutral
+        set_pose(wheel_offset=0.0, eye_offset=-cfg.patrol_range_eyes_deg)
         yield from wait_seconds(0.6)
 
-        # B. Körper folgt: Drehung nach RECHTS (-)
-        set_pose(wheel_offset=-cfg.patrol_range_wheels_deg, 
-                 eye_offset=cfg.patrol_range_eyes_deg)
-        yield from wait_seconds(3.0) # Langer Weg
-
-        # C. Nicken
-        set_pose(wheel_offset=-cfg.patrol_range_wheels_deg, 
-                 eye_offset=cfg.patrol_range_eyes_deg,
-                 pitch_offset=10.0)
-        yield from wait_seconds(0.4)
-        set_pose(wheel_offset=-cfg.patrol_range_wheels_deg, 
-                 eye_offset=cfg.patrol_range_eyes_deg,
-                 pitch_offset=0.0)
-        yield from wait_seconds(0.4)
-
-        # ==========================================
-        # PHASE 3: ZURÜCK ZUR MITTE
-        # ==========================================
-
-        # A. Augen zur Mitte (0.0)
-        # Körper steht noch RECHTS (-)
-        set_pose(wheel_offset=-cfg.patrol_range_wheels_deg, 
-                 eye_offset=0.0)
-        yield from wait_seconds(0.5)
-
-        # B. Körper zur Mitte
-        set_pose(wheel_offset=0.0, eye_offset=0.0)
+        # 2) Rotate wheels left (about 45-90 deg)
+        set_pose(wheel_offset=cfg.patrol_range_wheels_deg, eye_offset=-cfg.patrol_range_eyes_deg)
         yield from wait_seconds(1.5)
+
+        # 3) Nod up/down
+        yield from nod_up_down(cfg.patrol_range_wheels_deg, -cfg.patrol_range_eyes_deg)
+
+        # ==========================================
+        # PHASE 2: LOOK RIGHT, TURN RIGHT
+        # ==========================================
+        # 4) Eyes to the far right while body still left
+        set_pose(wheel_offset=cfg.patrol_range_wheels_deg, eye_offset=cfg.patrol_range_eyes_deg)
+        yield from wait_seconds(0.6)
+
+        # 5) Rotate wheels right across center to right side
+        set_pose(wheel_offset=-cfg.patrol_range_wheels_deg, eye_offset=cfg.patrol_range_eyes_deg)
+        yield from wait_seconds(1.8)
+
+        # 6) Nod up/down on right side
+        yield from nod_up_down(-cfg.patrol_range_wheels_deg, cfg.patrol_range_eyes_deg)
+
+        # ==========================================
+        # PHASE 3: RETURN TO CENTER
+        # ==========================================
+        # 7) Eyes back to far left while wheels stay right
+        set_pose(wheel_offset=-cfg.patrol_range_wheels_deg, eye_offset=-cfg.patrol_range_eyes_deg)
+        yield from wait_seconds(0.6)
+
+        # 8) Wheels back left towards center (stop at center)
+        set_pose(wheel_offset=0.0, eye_offset=-cfg.patrol_range_eyes_deg)
+        yield from wait_seconds(1.2)
+
+        # 9) Eyes to center (neutral); body already centered
+        set_pose(wheel_offset=0.0, eye_offset=0.0)
+        yield from wait_seconds(0.6)
     
     def _handle_detection(self, boxes: Sequence[FaceDetectionBox], *, timestamp: float) -> None:
         best = self._select_best_box(boxes)
@@ -314,7 +326,7 @@ class FaceTracker:
         error_y = cy - cfg.frame_center_y
 
         with self._lock:
-            eye_targets_before = tuple(servo.target_deg for servo in self._servos.eyes)
+            # eye_targets_before = tuple(servo.target_deg for servo in self._servos.eyes)
             for servo in self._servos.eyes:
                 if abs(error_x) > cfg.eye_deadzone_px:
                     delta = self._clamp(error_x * cfg.eye_gain_deg_per_px, cfg.eye_max_delta_deg)
@@ -336,7 +348,7 @@ class FaceTracker:
         if (now - self._last_detection) < self._config.neutral_timeout_s:
             return
         
-        # Nur auf Neutral gehen, wenn KEINE Patrouille läuft
+        # Only go to neutral if NO patrol is running
         if self._patrol_gen is None:
             for servo in self._servos.all_servos():
                 servo.move_to(servo.config.neutral_deg)

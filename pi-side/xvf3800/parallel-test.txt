@@ -1,0 +1,13 @@
+Bitte mache folgendes Experiment auf dem Pi:
+
+Terminal 1: Starte dein DOA-Testskript (das Endlosschleife läuft)
+python test_xvf3800_doa.py
+(Es sollte Werte ausspucken)
+
+Terminal 2 (neues Fenster): Starte eine Audio-Aufnahme, während Skript 1 läuft.
+arecord -D plughw:0 -f S16_LE -r 16000 -d 10 /tmp/test_parallel.wav
+(Dabei laut sprechen und schauen, ob sich die DOA-Werte in Terminal 1 ändern).
+
+Das Ergebnis:
+Szenario A: arecord meckert "Device or resource busy" oder das Python-Skript stürzt ab. Dann hatte ich recht, und wir haben ein Problem.
+Szenario B (Hoffnung): Beides läuft! arecord nimmt auf, und das Python-Skript zeigt live die Richtung an. Jackpot! Dann bauen wir das sofort ein.

@@ -1,0 +1,23 @@
+# /etc/default/piper_mqtt_tts
+
+# Piper
+PIPER_BIN=/opt/piper/piper
+PIPER_MODEL=/opt/piper/voices/de_DE-karlsson-low.onnx
+PIPER_CFG=/opt/piper/voices/de_DE-karlsson-low.onnx.json
+PIPER_SENTENCE_SILENCE=0.06
+
+# Audio
+SPEAKER_DEVICE=spk          
+APLAY_FORMAT=S16_LE          
+APLAY_RATE=                  
+
+# MQTT
+MQTT_HOST=127.0.0.1
+MQTT_PORT=1883
+MQTT_USER=
+MQTT_PASS=
+MQTT_BASE=coglet/tts         
+# Topics: coglet/tts/say, /cancel, /status
+
+# Logging
+LOG_LEVEL=DEBUG

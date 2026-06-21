@@ -1,0 +1,53 @@
+# This file is not a plain requirements.txt file and might need some of the below commtented out commands executed.
+# Diese Datei ist keine reine requirements.txt-Datei, sondern enthält in den Kommentaren u.U. auszuführende Kommandos
+
+numpy>=1.26.4
+scipy>=1.12.0
+requests>=2.31.0
+sounddevice>=0.4.6
+soundfile>=0.12.1
+webrtcvad>=2.0.10
+openwakeword>=0.6.0
+paho-mqtt>=1.6.1
+pyserial>=3.5
+websocket-client>=1.8.0,<2.0
+
+# PCA9685-Servo-Ansteuerung / Hardware
+pyusb>=1.2.1
+adafruit-blinka>=8.50.0 # see below
+adafruit-circuitpython-pca9685>=3.4.11
+adafruit-circuitpython-neopixel>=6.3.12
+
+# Adafruit stuff (watch out for pitfalls on Pi5)
+# cd ~
+# sudo apt install python3-venv
+# python3 -m venv env --system-site-packages
+# source env/bin/activate
+# pip3 install --upgrade adafruit-python-shell
+# wget https://raw.githubusercontent.com/adafruit/Raspberry-Pi-Installer-Scripts/master/raspi-blinka.py
+# sudo -E env PATH=$PATH python3 raspi-blinka.py
+
+# or manual installation:
+# sudo raspi-config nonint do_i2c 0
+# sudo raspi-config nonint do_spi 0
+# sudo raspi-config nonint do_serial_hw 0
+# sudo raspi-config nonint do_ssh 0
+# sudo raspi-config nonint do_camera 0
+# sudo apt-get install -y i2c-tools libgpiod-dev python3-libgpiod
+# pip3 install --upgrade adafruit-blinka
+
+# on a Pi 5 uninstall RPi.GPIO
+# pip3 uninstall -y RPi.GPIO
+# if the Pi 5 cannot determine the SOC peripheral base address
+# uncomment #dtparam=spi=on  in /boot/config.txt 
+
+# ls /dev/i2c* /dev/spi*
+# sudo apt update
+# sudo apt upgrade -y
+# sudo rpi-eeprom-update -a
+# pip install Adafruit-Blinka-Raspberry-Pi5-Neopixel
+# pip install adafruit-circuitpython-pixelbuf
+# pip install adafruit-circuitpython-led-animation
+
+# Tests / Tooling
+pytest>=8.2.0

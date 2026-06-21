@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# defaults in case no ENV-vars are set
+MQTT_HOST=${MQTT_HOST:-127.0.0.1}
+MQTT_PORT=${MQTT_PORT:-1883}
+MQTT_BASE=${MQTT_BASE:-coglet/tts}
+TOPIC_SAY="${MQTT_BASE}/say"
+
+# Make sure, run time directory exists
+[ -d /run/piper ] || mkdir -p /run/piper
+
+if [ $# -gt 0 ]; then
+  text="$*"
+else
+  text="$(cat)"
+fi
+
+id="$(date +%s%3N)"
+
+# JSON-Payload access MQTT
+payload=$(jq -nc --arg id "$id" --arg t "$text" '{id:$id,text:$t}')
+
+mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -t "$TOPIC_SAY" -m "$payload"
+
+# remember last_id for say-cancel command
+printf '%s\n' "$id" > /run/piper/last_id
+
+# output ID for informational purpose
+printf '%s\n' "$id"

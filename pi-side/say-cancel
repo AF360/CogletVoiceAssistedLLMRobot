@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MQTT_HOST=${MQTT_HOST:-127.0.0.1}
+MQTT_PORT=${MQTT_PORT:-1883}
+MQTT_BASE=${MQTT_BASE:-coglet/tts}
+TOPIC_CANCEL="${MQTT_BASE}/cancel"
+
+id="${1:-$(cat /run/piper/last_id 2>/dev/null || true)}"
+[ -n "${id:-}" ] || { echo "no id"; exit 1; }
+
+mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -t "$TOPIC_CANCEL" -m "$id"

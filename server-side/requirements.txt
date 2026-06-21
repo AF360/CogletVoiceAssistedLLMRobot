@@ -1,0 +1,5 @@
+# Server-side dependencies for the local Faster-Whisper STT service.
+# Text-to-speech is handled on the Raspberry Pi side.
+
+flask
+faster-whisper

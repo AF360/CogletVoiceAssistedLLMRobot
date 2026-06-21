@@ -1,0 +1,19 @@
+
+# Getting started:
+https://wiki.seeedstudio.com/respeaker_xvf3800_introduction/
+
+# Using with Python
+https://wiki.seeedstudio.com/respeaker_xvf3800_python_sdk/
+
+# On Raspberry Pi / Linux
+git clone https://github.com/KasunThushara/reSpeakerXVF_rpi.git
+cd reSpeakerXVF_rpi
+chmod +x xvf_host
+python3 test.py
+
+Firmware download:
+https://github.com/respeaker/reSpeaker_XVF3800_USB_4MIC_ARRAY/tree/master/host_control
+
+Firmware update:
+On Linux, run it with sudo
+sudo dfu-util -R -e -a 1 -D /path/to/dfu_firmware.bin

@@ -117,7 +117,7 @@ Parts of the servo control and face tracking logic are adapted from work by [Wil
 - 1x Mean Well RSP-100-5, 20A 5V power supply for the servos
 - 1x optional 5mm NeoPixel RGB LED
 - 1x Adafruit Pixel Shifter 6066 level shifter
-- 3D-printed Coglet parts from Will Cogley
+- 3D-printed Coglet parts from Will Cogley (https://github.com/will-cogley/Coglet/blob/main/3D%20Printing%20Files/CogletB34Parts.3mf)
 - optional ultra-realistic eyeballs from Will Cogley's online shop
 - 1x Linux GPU server for Local Mode; 8-12GB VRAM minimum, 24/32GB recommended
 

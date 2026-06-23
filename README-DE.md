@@ -117,7 +117,7 @@ Teile der Servo-Steuerung und Face-Tracking-Logik sind aus Arbeiten von [Will Co
 - 1x Mean Well RSP-100-5, 20A 5V-Netzteil für die Servos
 - 1x optionale 5mm NeoPixel-RGB-LED
 - 1x Adafruit Pixel Shifter 6066 Pegelwandler
-- 3D-gedruckte Coglet-Teile von Will Cogley
+- 3D-gedruckte Coglet-Teile von Will Cogley (https://github.com/will-cogley/Coglet/blob/main/3D%20Printing%20Files/CogletB34Parts.3mf)
 - optional ultrarealistische Augäpfel aus Will Cogleys Online-Shop
 - 1x Linux-GPU-Server für Local Mode; mindestens 8-12GB VRAM, empfohlen 24/32GB
 

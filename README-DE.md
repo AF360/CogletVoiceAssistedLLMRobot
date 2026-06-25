@@ -6,8 +6,8 @@ Ein Roboter-/Animatronics-Prototyp mit Voice-I/O, animierten Augen- und Kopfbewe
 
 | Modus | Launcher | Gesprächspipeline |
 |---|---|---|
-| **Local Mode** | `pi-side/coglet-local.py` | Hardware-VAD oder optionales Wakeword -> lokale Aufnahme -> Faster-Whisper -> Ollama -> Piper/MQTT TTS |
-| **Cloud Mode** | `pi-side/coglet-cloud.py` | Kontinuierliche OpenAI-Realtime-Speech-to-Speech-Sitzung ohne Wakeword |
+| **Local Mode** | `pi-side/coglet-local.py` | Hardware-VAD oder optionales Wakeword -> lokale Aufnahme -> Faster-Whisper -> Ollama -> Piper/MQTT TTS => Datenschutz & Privatsphäre durch rein lokalen Betrieb |
+| **Cloud Mode** | `pi-side/coglet-cloud.py` | Kontinuierliche OpenAI-Realtime-Speech-to-Speech-Sitzung ohne Wakeword => Kein Datenschutz, keine Privatsphäre |
 
 Die Launcher sind absichtlich getrennt. `coglet-local.py` ist ausschließlich lokal; es enthält keinen OpenAI-Realtime-Ausführungspfad. Um OpenAI Realtime zu verwenden, starte stattdessen `coglet-cloud.py`.
 
@@ -15,6 +15,8 @@ Beide Launcher verwenden dieselbe private Datei `pi-side/env-exports.sh`. Das au
 
 ## Local Mode
 
+Der Lokale Modus wurde unter Berücksichtigung von Datenschutz und Datensicherheit entwickelt: Die Konversation bleibt vollständig lokal, und es werden keine Daten über das Internet gesendet.
+Das LLM wird lokal gehostet, und auch die Spracherkennung (Speech-to-Text), die Sprachausgabe (Text-to-Speech) sowie die Steuerungslogik laufen lokal.
 Local Mode hält das Gespräch lokal. Standardmäßig kann Coglet über das Hardware-VAD des XVF3800 geweckt werden; OpenWakeWord bleibt als optionaler Wakeword-Trigger verfügbar.
 
 ```text
@@ -42,6 +44,7 @@ Local Mode benötigt keinen OpenAI-API-Schlüssel.
 
 ## OpenAI Realtime Cloud Mode
 
+Im Cloud-Modus werden das LLM, die VAD (Sprachaktivierungserkennung), die Spracherkennung (Speech-to-Text) und die Sprachausgabe (Text-to-Speech) von OpenAI verarbeitet. Daher werden Deine Daten und Deine Stimme an OpenAI übermittelt, sodass im Cloud-Modus kein Datenschutz und keine Datensicherheit gewährleistet sind.
 Cloud Mode wird explizit mit `coglet-cloud.py` gestartet. Er öffnet sofort eine kontinuierliche OpenAI-Realtime-Sitzung; es gibt kein Wakeword und keine lokale STT/LLM/TTS-Pipeline für das Gespräch selbst.
 
 Der Raspberry Pi übernimmt weiterhin:

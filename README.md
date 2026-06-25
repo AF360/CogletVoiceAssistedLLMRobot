@@ -17,7 +17,6 @@ Both launchers use the same private `pi-side/env-exports.sh`. The selected execu
 
 Local Mode has been designed with data privacy and data protecion in mind: It keeps the conversation fully local, nothing is sent accross the internet. 
 The LLM is hosted locally, Speech-to-Text, Text-to-Speech and control logic are running locally.
-
 By default Coglet can wake from the XVF3800 hardware VAD; OpenWakeWord remains available as an optional wakeword trigger.
 
 ```text

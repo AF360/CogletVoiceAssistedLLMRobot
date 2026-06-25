@@ -6,8 +6,8 @@ A robot/animatronics prototype with voice I/O, animated eyes and head movement, 
 
 | Mode | Launcher | Conversation pipeline |
 |---|---|---|
-| **Local Mode** | `pi-side/coglet-local.py` | Hardware VAD or optional wakeword -> local recording -> Faster-Whisper -> Ollama -> Piper/MQTT TTS |
-| **Cloud Mode** | `pi-side/coglet-cloud.py` | Continuous OpenAI Realtime speech-to-speech session without wakeword |
+| **Local Mode** | `pi-side/coglet-local.py` | Hardware VAD or optional wakeword -> local recording -> Faster-Whisper -> Ollama -> Piper/MQTT TTS => Data protection and data privacy in mind |
+| **Cloud Mode** | `pi-side/coglet-cloud.py` | Continuous OpenAI Realtime speech-to-speech session without wakeword => Data sent to OpenAI, no privacy, no protection |
 
 The launchers are intentionally separate. `coglet-local.py` is local-only; it contains no OpenAI Realtime execution path. To use OpenAI Realtime, start `coglet-cloud.py` instead.
 
@@ -15,7 +15,10 @@ Both launchers use the same private `pi-side/env-exports.sh`. The selected execu
 
 ## Local Mode
 
-Local Mode keeps the conversation local. By default Coglet can wake from the XVF3800 hardware VAD; OpenWakeWord remains available as an optional wakeword trigger.
+Local Mode has been designed with data privacy and data protecion in mind: It keeps the conversation fully local, nothing is sent accross the internet. 
+The LLM is hosted locally, Speech-to-Text, Text-to-Speech and control logic are running locally.
+
+By default Coglet can wake from the XVF3800 hardware VAD; OpenWakeWord remains available as an optional wakeword trigger.
 
 ```text
 -> hardware VAD speech trigger or optional OpenWakeWord detection
@@ -43,6 +46,7 @@ Local Mode does not require an OpenAI API key.
 ## OpenAI Realtime Cloud Mode
 
 Cloud Mode is started explicitly with `coglet-cloud.py`. It opens one continuous OpenAI Realtime session immediately; there is no wakeword and no local STT/LLM/TTS pipeline for the conversation itself.
+In cloud mode the LLM, VAD, Speech-to-Text und Text-to-Speech are handled by OpenAI, so your data and voice are sent over to OpenAI and no data privacy / data protection are given in Cloud mode.
 
 The Raspberry Pi still handles:
 

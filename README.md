@@ -45,7 +45,6 @@ Local Mode does not require an OpenAI API key.
 ## OpenAI Realtime Cloud Mode
 
 Cloud Mode is started explicitly with `coglet-cloud.py`. It opens one continuous OpenAI Realtime session immediately; there is no wakeword and no local STT/LLM/TTS pipeline for the conversation itself.
-
 In cloud mode the LLM, VAD, Speech-to-Text und Text-to-Speech are handled by OpenAI, so your data and voice are sent over to OpenAI and no data privacy / data protection are given in Cloud mode.
 
 The Raspberry Pi still handles:

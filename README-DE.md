@@ -1,4 +1,4 @@
-![Coglet1](images/Cogletblue2.jpg)  
+![Coglet](images/Coglet.png)  
 
 # Coglet VoiceAssistedLLM Robot
 
@@ -146,4 +146,4 @@ Teile der Servo-Steuerung und Face-Tracking-Logik sind aus Arbeiten von [Will Co
 - `server-side/stt_http_server.py` — Local-Mode-STT-Service
 - `server-side/` — lokale STT-, Modell- und Prompt-Assets
 
-![Coglet2](images/Coglet02.jpg)   ![Coglet3](images/Cogletblue1.jpg)  ![Coglet4](images/Cogletblue3.jpg)
+![Coglet1](images/Cogletblue2.jpg)  ![Coglet2](images/Coglet02.jpg)   ![Coglet3](images/Cogletblue1.jpg)  ![Coglet4](images/Cogletblue3.jpg)

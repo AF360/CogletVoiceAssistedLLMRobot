@@ -1,4 +1,4 @@
-![Coglet1](images/Coglet.png)  
+![Coglet](images/Coglet.png)  
 
 # Coglet VoiceAssistedLLM Robot
 

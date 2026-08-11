@@ -69,7 +69,5 @@ läuft die Sprachpipeline mit einer Warnung ohne LED weiter.
 
 ## Hinweis zum VAD
 
-`WAKEWORD_BACKEND=xvf_vad` ist für diesen Launcher nicht sinnvoll, weil die
-XVF3800-Steuerschnittstelle absichtlich nicht geladen wird. `local_mode.py`
-fällt in diesem Fall zwar automatisch auf OpenWakeWord zurück; die explizite
-Einstellung `WAKEWORD_BACKEND=oww` macht die Konfiguration jedoch eindeutig.
+Ein angeschlossenes XVF3800 kann weiterhin als aufbereitetes USB-Audiogerät dienen. Seine Hardware-VAD und DOA-Steuerschnittstelle verwendet dieser Launcher nicht: 
+Nach dem Wakeword bestimmt eine konfigurierbare WebRTC-VAD direkt im Audiostream Beginn und Ende der Äußerung.

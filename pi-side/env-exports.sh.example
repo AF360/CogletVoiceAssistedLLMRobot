@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 ### --- Version ---
-export COGLET_VERSION="1.1.2"
+export COGLET_VERSION="1.1.3"
 
 ### --- Endpunkte / Modelle ---
 # Local Mode: Pi records audio, sends it to the STT server, calls Ollama directly,

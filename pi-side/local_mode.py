@@ -836,7 +836,7 @@ def _ollama_chat(messages: list[dict], model: str | None = None, temperature: fl
 
     options = {
         "temperature": temp_val,
-        "num_ctx": int(os.getenv("LLM_NUM_CTX", "8192")),
+        "num_ctx": int(os.getenv("LLM_NUM_CTX", "4096")),
         "num_predict": int(os.getenv("LLM_NUM_PREDICT", "1024")),
     }
 

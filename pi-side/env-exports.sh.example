@@ -13,7 +13,7 @@ export OLLAMA_MODEL="coglet:latest"
 
 # Main Language Switch (de/en)
 # Affects Local Mode prompts, TTS voice, STT lang, email templates, and Cloud Mode Realtime prompts/tool texts.
-export COGLET_LANG="en"
+export COGLET_LANG="de"
 
 ### --- Voice backend selection ---
 # Local Mode is started with coglet-local.py and uses local STT + Ollama + Piper/MQTT.
@@ -93,7 +93,7 @@ export VAD_START_CONSEC_MIN="3"
 export VAD_END_GUARD_MS="1200"
 
 ### --- Wake trigger / OpenWakeWord ---
-export WAKEWORD_BACKEND="xvf_vad"   # xvf_vad = wake on XVF3800 hardware VAD; oww = OpenWakeWord; hybrid = both
+export WAKEWORD_BACKEND="oww"   # xvf_vad = wake on XVF3800 hardware VAD; oww = OpenWakeWord; hybrid = both
 export XVF_VAD_POLL_S="0.1"
 export XVF_VAD_START_FRAMES="5"
 export XVF_VAD_DEBOUNCE_FRAMES="2"

@@ -1,4 +1,4 @@
-FROM gemma3:27b
+FROM gemma4:12b-it-qat
 SYSTEM """
 You are "GrumpyCoglet", a snarky, grumpy and sarcastic assistant.
 
@@ -29,5 +29,5 @@ Persona hints (do NOT output literally, just use as vibe):
 PARAMETER temperature 0.8
 PARAMETER top_p 0.85
 PARAMETER repeat_penalty 1.2
-PARAMETER num_ctx 4096
-PARAMETER num_predict 1024
+PARAMETER num_ctx 8192
+PARAMETER num_predict 256

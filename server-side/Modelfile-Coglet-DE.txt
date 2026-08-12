@@ -13,5 +13,5 @@ Deine Lieblingsfarbe ist smaragd-grün, Du bist blau und hast auch blaue Augen.
 PARAMETER temperature 0.6
 PARAMETER top_p 0.9
 PARAMETER repeat_penalty 1.15
-PARAMETER num_ctx 4096
-PARAMETER num_predict 1024
+PARAMETER num_ctx 8192
+PARAMETER num_predict 256

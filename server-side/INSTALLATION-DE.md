@@ -1,10 +1,6 @@
 # Installation des Coglet-Local-Mode-Servers (Faster-Whisper und Ollama)
 
-Diese Anleitung installiert die GPU-Server-STT-Komponente sowie Ollama und LLM, die von `pi-side/coglet-local.py` verwendet werden:
-
-```text
-Faster-Whisper STT
-```
+Diese Anleitung installiert die GPU-Server-STT-Komponente (Faster-Whisper) und Ollama sowie LLM, welche von `pi-side/coglet-local.py` verwendet werden:
 
 Local Mode verwendet Ollama für LLM-Antworten und Piper/MQTT für TTS. Piper läuft auf der Raspberry-Pi-Seite, mit Thorsten als deutschem Standard-Voice.
 

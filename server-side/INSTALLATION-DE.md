@@ -1,6 +1,6 @@
-# Installation des Coglet-Local-Mode-Servers
+# Installation des Coglet-Local-Mode-Servers (Faster-Whisper und Ollama)
 
-Diese Anleitung installiert die GPU-Server-STT-Komponente, die von `pi-side/coglet-local.py` verwendet wird:
+Diese Anleitung installiert die GPU-Server-STT-Komponente sowie Ollama und LLM, die von `pi-side/coglet-local.py` verwendet werden:
 
 ```text
 Faster-Whisper STT
@@ -113,6 +113,136 @@ sudo systemctl status coglet-stt
 curl -s http://127.0.0.1:5005/healthz
 curl -F audio=@sample.wav -F lang=de http://127.0.0.1:5005/stt
 ```
+
+## Ollama und das Coglet-Sprachmodell installieren
+
+Coglet verwendet [Ollama](https://ollama.com/) zur lokalen Ausführung des Sprachmodells. Die folgenden Schritte sind für einen Linux-Server mit `systemd` vorgesehen. Führen Sie die Befehle zunächst im Verzeichnis `server-side` des Repositorys aus.
+
+### 1. Ollama installieren
+
+Installieren Sie die aktuelle Ollama-Version:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+Prüfen Sie anschließend die Installation:
+
+```bash
+ollama --version
+```
+
+Ollama richtet dabei normalerweise bereits einen eigenen Benutzer und den `systemd`-Dienst `ollama.service` ein. Damit der Raspberry Pi über das lokale Netzwerk auf die Ollama-API zugreifen kann, enthält Coglet den systemd-Drop-in `ollama.service.d/override.conf`. Er ergänzt die von Ollama installierte Service-Datei, ohne sie zu ersetzen.
+
+Installieren Sie den mitgelieferten Drop-in und starten Sie Ollama neu:
+
+```bash
+sudo install -d -m 0755 /etc/systemd/system/ollama.service.d
+sudo install -m 0644 ollama.service.d/override.conf \
+  /etc/systemd/system/ollama.service.d/override.conf
+sudo systemctl daemon-reload
+sudo systemctl enable ollama.service
+sudo systemctl restart ollama.service
+sudo systemctl status ollama.service
+```
+
+Die Zeile
+
+```text
+Environment=OLLAMA_HOST=0.0.0.0:11434
+```
+
+macht die Ollama-API auf allen Netzwerkschnittstellen erreichbar, damit Coglet von einem anderen Rechner – beispielsweise dem Raspberry Pi – darauf zugreifen kann. Begrenzen Sie den Zugriff deshalb per Firewall auf das vertrauenswürdige lokale Netz und geben Sie Port `11434` nicht ins Internet frei.
+
+Mit folgendem Befehl können Sie kontrollieren, ob systemd den Drop-in geladen hat:
+
+```bash
+systemctl cat ollama.service
+```
+
+Am Ende der Ausgabe muss der Inhalt von `override.conf` mit `OLLAMA_HOST=0.0.0.0:11434` erscheinen. Die ebenfalls im Verzeichnis vorhandene vollständige Datei `ollama.service` ist für diesen Installationsweg nicht erforderlich; der Drop-in lässt die von Ollama installierte Unit unangetastet.
+
+### 2. Basismodell herunterladen
+
+Laden Sie das von Coglet verwendete Basismodell herunter:
+
+```bash
+ollama pull gemma4:12b-it-qat
+```
+
+Das Modell umfasst mehrere Gigabyte. Prüfen Sie nach dem Download, ob es vollständig vorhanden ist:
+
+```bash
+ollama list
+```
+
+In der Ausgabe muss `gemma4:12b-it-qat` erscheinen.
+
+### 3. Coglet-Modell aus dem Modelfile erzeugen
+
+Der Coglet-Server erwartet standardmäßig ein Ollama-Modell mit dem Namen `coglet:latest`. Erzeugen Sie es aus dem deutschen Modelfile:
+
+```bash
+ollama create coglet:latest -f Modelfile-Coglet-DE.txt
+```
+
+Das Modelfile ergänzt das Basismodell unter anderem um Coglets deutschen Systemprompt und die vorgesehenen Laufzeitparameter. Prüfen Sie anschließend das Ergebnis:
+
+```bash
+ollama list
+```
+
+In der Ausgabe müssen nun sowohl `gemma4:12b-it-qat` als auch `coglet:latest` aufgeführt sein.
+
+Nach Änderungen am Modelfile führen Sie denselben `ollama create`-Befehl erneut aus. Der vorhandene Modell-Tag `coglet:latest` wird dabei aktualisiert.
+
+### 4. Coglet-Modell testen
+
+Starten Sie vor dem Coglet-Server einen kurzen interaktiven Funktionstest:
+
+```bash
+ollama run coglet:latest
+```
+
+Geben Sie beispielsweise `Hallo Coglet!` ein. Beenden Sie den Dialog anschließend mit:
+
+```text
+/bye
+```
+
+### 5. Optional: Modell beim Serverstart vorladen
+
+Ohne Vorladen muss Ollama das Modell bei der ersten Anfrage in den Speicher laden. Die mitgelieferten Dateien `ollama-warmup.sh` und `ollama-warmup.service` können diese Verzögerung nach einem Serverneustart vermeiden. Das Skript sendet eine Testanfrage an `coglet:latest` und hält das Modell mit `keep_alive` für 45 Minuten im Speicher.
+
+Öffnen Sie vor der Installation `ollama-warmup.sh` und prüfen Sie die Variable `URL`. Die Repository-Fassung enthält eine installationsspezifische IP-Adresse. Da das Warm-up auf demselben Server wie Ollama ausgeführt wird, verwenden Sie normalerweise die lokale Adresse:
+
+```bash
+URL="http://127.0.0.1:11434/api/chat"
+```
+
+Installieren und aktivieren Sie anschließend Skript und Dienst:
+
+```bash
+sudo install -m 0755 ollama-warmup.sh /usr/local/bin/ollama-warmup.sh
+sudo install -m 0644 ollama-warmup.service /etc/systemd/system/ollama-warmup.service
+sudo systemctl daemon-reload
+sudo systemctl enable ollama-warmup.service
+sudo systemctl start ollama-warmup.service
+sudo systemctl status ollama-warmup.service
+```
+
+Der Warm-up-Dienst wartet auf `ollama.service` und versucht die Anfrage bei einem verzögerten Ollama-Start bis zu zehnmal. Sein Protokoll lässt sich wie folgt anzeigen:
+
+```bash
+journalctl -u ollama-warmup.service
+```
+
+Das Vorladen ist optional, aber empfohlen. Für einen Funktionstest oder bei knappem GPU-Speicher kann `ollama-warmup.service` deaktiviert werden:
+
+```bash
+sudo systemctl disable --now ollama-warmup.service
+```
+
 
 ## Raspberry-Pi-Local-Mode-Konfiguration
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Run Coglet in OpenAI Realtime cloud mode without a wakeword."""
 from __future__ import annotations
-
 import base64
 import json
 import math
@@ -13,7 +12,6 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
-
 import command_utils
 import numpy as np
 import robot_runtime as robot
@@ -172,17 +170,14 @@ DEFAULT_EXIT_PHRASES = tuple(CLOUD_TEXT["exit_phrases"])
 CLOUD_NATIVE_PHRASES = set(CLOUD_TEXT["native_phrases"])
 LOCAL_BARGE_IN_SAMPLE_RATES = {8000, 16000, 32000, 48000}
 
-
 def _env_text(name: str, default: str) -> str:
     return (os.getenv(name) or default).strip() or default
-
 
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
-
 
 def _env_int(name: str, default: int, min_value: int | None = None, max_value: int | None = None) -> int:
     try:
@@ -195,7 +190,6 @@ def _env_int(name: str, default: int, min_value: int | None = None, max_value: i
         value = min(max_value, value)
     return value
 
-
 def _env_float(name: str, default: float, min_value: float | None = None) -> float:
     try:
         value = float(os.getenv(name) or default)
@@ -205,14 +199,12 @@ def _env_float(name: str, default: float, min_value: float | None = None) -> flo
         value = max(min_value, value)
     return value
 
-
 def _pcm16_dbfs(pcm: bytes) -> float:
     samples = np.frombuffer(pcm, dtype="<i2")
     if samples.size == 0:
         return -120.0
     rms = float(np.sqrt(np.mean(np.square(samples.astype(np.float32)))) / 32768.0)
     return 20.0 * math.log10(max(rms, 1e-12))
-
 
 SEND_EMAIL_TOOL = {
     "type": "function",
@@ -255,15 +247,12 @@ def _cloud_exit_phrases(normalize: Callable[[str], str]) -> set[str]:
     )
     return {normalize(value) for value in values if normalize(value)}
 
-
 def _image_as_data_url(path: Path) -> str:
     mime_type, _ = mimetypes.guess_type(path.name)
     if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
         raise ValueError(f"Unsupported Coglet image format: {path.name}")
-
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
     return f"data:{mime_type};base64,{encoded}"
-
 
 class CloudRealtimeSession(RealtimeSession):
     def __init__(

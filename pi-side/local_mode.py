@@ -60,34 +60,26 @@ from startup_checks import (
     check_stt_health,
 )
 
-
 try:
     import email_sender
 except ImportError:
     email_sender = None
 
-
 from hardware.audio import Recorder, SpeechEndpoint, Wakeword, set_global_listen_state
 from command_utils import normalize_command_text as _normalize_command_text
 from robot_runtime import (CogletState, ReSpeakerMic, XVF_MIC_AVAILABLE as _XVF_MIC_AVAILABLE, anim_error, anim_listen_start, anim_listen_stop, anim_talk_start, anim_talk_stop, anim_think_start, anim_think_stop, apply_personality_neutral_pose as _apply_personality_neutral_pose, cleanup_servo_hardware as _cleanup_servo_hardware, demomode, eyelids_set_mode as _eyelids_set_mode, initialize_all_servos as _initialize_all_servos, initialize_status_led as _initialize_status_led, led_set_state_safe as _led_set_state_safe, restore_neutral_pose_and_close_lid as _restore_neutral_pose_and_close_lid, set_deep_sleep_led_pulse, setup_face_tracking as _setup_face_tracking, start_idle_animation as _start_idle_animation, stop_idle_animation as _stop_idle_animation)
-
-
 from logging_setup import get_logger, setup_logging
 
 setup_logging()
 logger = get_logger()
 
-
 LANG_CODE = os.getenv("COGLET_LANG", "de").lower().strip()
-
 
 _STRINGS = {
     "de": {
-
         "stt_lang": "de",
         "piper_voice": "/opt/piper/voices/de_DE-thorsten-high.onnx",
         "piper_json": "/opt/piper/voices/de_DE-thorsten-high.onnx.json",
-
 
         "model_ready": "Alle Subsysteme hochgefahren. Ich bin bereit zu helfen.",
         "model_confirm": "Ja?",
@@ -95,7 +87,6 @@ _STRINGS = {
         "ack_eoc": "Alles klar.",
         "ack_ams": "OK.",
         "ack_ds": "Ich mache ein Nickerchen. Wecke mich, wenn Du etwas von mir brauchst .",
-
 
         "email_missing_recipient": "Keine Empfängeradresse konfiguriert.",
         "email_success": "Alles klar, ich habe dir eine ausführliche E-Mail geschickt.",
@@ -121,11 +112,9 @@ _STRINGS = {
         )
     },
     "en": {
-
         "stt_lang": "en",
         "piper_voice": "/opt/piper/voices/en_US-lessac-high.onnx",
         "piper_json": "/opt/piper/voices/en_US-lessac-high.onnx.json",
-
 
         "model_ready": "All subsystems up and running. Ready to help.",
         "model_confirm": "Yes?",
@@ -133,7 +122,6 @@ _STRINGS = {
         "ack_eoc": "Alright.",
         "ack_ams": "OK.",
         "ack_ds": "Taking a nap. Wake me when you need me.",
-
 
         "email_missing_recipient": "No recipient address configured.",
         "email_success": "Alright, I sent you a detailed email and am now waiting for the wakeword.",
@@ -164,14 +152,11 @@ def get_msg(key: str, env_var: Optional[str] = None) -> str:
     """Retrieve a localized string, optionally overridden by an env var."""
 
     lang_dict = _STRINGS.get(LANG_CODE, _STRINGS["en"])
-
     default_text = lang_dict.get(key, f"MISSING_STRING: {key}")
-
 
     if env_var:
         return os.getenv(env_var, default_text)
     return default_text
-
 
 def _parse_bool(value: Optional[str], default: bool) -> bool:
     if value is None:
@@ -182,31 +167,25 @@ def _parse_bool(value: Optional[str], default: bool) -> bool:
     return normalized in {"1", "true", "yes", "on"}
 
 DEMOMODE         = _parse_bool(os.getenv("DEMOMODE"), False)
-BARGE_IN         = _parse_bool(os.getenv("BARGE_IN"), True)
+BARGE_IN         = _parse_bool(os.getenv("BARGE_IN"), False)
 TTS_MODE         = os.getenv("TTS_MODE", "mqtt")
 STT_URL          = os.getenv("STT_URL", "http://192.168.10.161:5005")
 OLLAMA_URL       = os.getenv("OLLAMA_URL", "http://192.168.10.161:11434")
 OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL", "coglet:latest")
 LLM_KEEP_ALIVE   = os.getenv("LLM_KEEP_ALIVE", "30m")
-
-
 MODEL_CONFIRM    = get_msg("model_confirm", "MODEL_CONFIRM")
 MODEL_READY      = get_msg("model_ready", "MODEL_READY")
 MODEL_BYEBYE     = get_msg("model_byebye", "MODEL_BYEBYE")
 EOC_ACK          = get_msg("ack_eoc", "EOC_ACK")
 AMS_ACK          = get_msg("ack_ams", "AMS_ACK")
 DS_ACK           = get_msg("ack_ds", "DS_ACK")
-
-
 PIPER_VOICE      = get_msg("piper_voice", "PIPER_VOICE")
 PIPER_VOICE_JSON = get_msg("piper_json", "PIPER_VOICE_JSON")
-
 
 if not os.getenv("STT_LANG"):
     os.environ["STT_LANG"] = get_msg("stt_lang")
 
-
-OWW_MODEL        = os.getenv("OWW_MODEL", "/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/wheatley.onnx")
+OWW_MODEL        = os.getenv("OWW_MODEL", "/opt/coglet-pi/.venv/lib/python3.13/site-packages/openwakeword/resources/models/coglet.onnx")
 OWW_THRESHOLD    = float(os.getenv("OWW_THRESHOLD", "0.35"))
 OWW_DEBUG        = int(os.getenv("OWW_DEBUG", "0"))
 MIC_SR           = int(os.getenv("MIC_SR", "16000"))
@@ -216,7 +195,6 @@ WAKEWORD_BACKEND_MODE = WAKEWORD_BACKEND.strip().lower()
 XVF_WAKE_BACKENDS = {"xvf_vad", "hardware_vad", "vad"}
 XVF_WAKE_PREROLL_S = float(os.getenv("XVF_WAKE_PREROLL_S", "0.6"))
 XVF_WAKE_HOLD_EYELIDS = _parse_bool(os.getenv("XVF_WAKE_HOLD_EYELIDS"), True)
-
 PIPER_FIFO       = os.getenv("PIPER_FIFO", "/run/piper/in.jsonl")
 PIPER_MQTT_HOST  = os.getenv("PIPER_MQTT_HOST", "127.0.0.1")
 PIPER_MQTT_PORT  = int(os.getenv("PIPER_MQTT_PORT", "1883"))
@@ -273,7 +251,6 @@ def _graceful_shutdown(signum=None, frame=None) -> None:
 _tts_active = False
 sd.default.samplerate = MIC_SR
 
-
 def _is_program_exit_command(text: str) -> bool:
     normalized = _normalize_command_text(text)
     if not normalized:
@@ -282,20 +259,16 @@ def _is_program_exit_command(text: str) -> bool:
     exits = {"programm ende", "programmende", "programm-ende"}
     return normalized in exits or collapsed in exits
 
-
 def _is_email_request(text: str) -> bool:
     normalized = _normalize_command_text(text)
-
 
     if re.search(r"\b(per|als|via|by|as|in)\s+(an\s+|a\s+|an\s+)?(e-?mail|mail|nachricht|message)\b", normalized):
         logger.info(f"[intent] Detected Email intent (Preposition): {text}")
         return True
 
-
     if re.search(r"\b(e-?mail|mail)(e|en|st|t|s|ing|ed)?\s+(mir|uns|an|me|us|to)\b", normalized):
         logger.info(f"[intent] Detected Email intent (Verb): {text}")
         return True
-
 
     words = set(normalized.split())
     strong_verbs = {
@@ -311,9 +284,7 @@ def _is_email_request(text: str) -> bool:
         "forward", "dispatch"
     }
     objects = {
-
         "mail", "email", "e-mail", "e-mails", "emails", "nachricht",
-
         "message", "copy", "letter"
     }
 
@@ -340,14 +311,9 @@ def _handle_email_request(user_text: str, rec, kw) -> bool:
         return True
 
     logger.info("[email] Handling request: %r", user_text)
-
-
     system_prompt = get_msg("email_sys_prompt")
-
-
     user_prompt_template = get_msg("email_user_prompt_template")
     user_prompt = user_prompt_template.replace("{user_text}", user_text)
-
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt}
@@ -355,8 +321,6 @@ def _handle_email_request(user_text: str, rec, kw) -> bool:
 
     anim_think_start()
     try:
-
-
         response = _ollama_chat(messages, temperature=0.6, num_predict=4096, timeout=600.0)
     except Exception as e:
         logger.error("[email] LLM generation error: %s", e)
@@ -365,7 +329,6 @@ def _handle_email_request(user_text: str, rec, kw) -> bool:
         return True
 
     anim_think_stop()
-
 
     subject = get_msg("email_subject_fallback")
     body = response
@@ -376,7 +339,6 @@ def _handle_email_request(user_text: str, rec, kw) -> bool:
             header_part = parts[0].strip()
             body_part = parts[1].strip()
 
-
             m = re.search(r"Subject:\s*(.*)", header_part, re.IGNORECASE)
             if m:
                 subject = m.group(1).strip()
@@ -385,10 +347,8 @@ def _handle_email_request(user_text: str, rec, kw) -> bool:
         except Exception as e:
             logger.warning("[email] Parsing failed, sending raw content: %s", e)
 
-
     if subject == get_msg("email_subject_fallback"):
         subject = f"{subject}: {user_text[:20]}..."
-
 
     try:
         email_sender.send_email_smtp(email_to, subject, body)
@@ -425,7 +385,6 @@ def _fifo_write_nonblock(path: str, line: str) -> bool:
     finally:
         try: os.close(fd)
         except Exception: pass
-
 
 _mqtt_client = None
 _mqtt_connected = False
@@ -645,43 +604,26 @@ def say(text: str, recorder: Optional[Recorder] = None, wakeword: Optional[Wakew
         if (TTS_MODE.lower() == "mqtt" or PIPER_MQTT_HOST) and (mqtt is not None):
             est = max(0.6, estimate_tts_seconds(text))
             tts_id = _piper_mqtt_publish(text, estimate_hint=est)
-
             if tts_id:
                 used = True
-
-
                 deadline = time.time() + 5.0
-
                 while time.time() < deadline:
                     state = _tts_states.get(tts_id)
-
-
                     if state in {"SPEAKING", "DONE", "CANCELLED", "ERROR"}:
                         break
                     time.sleep(0.05)
-
-
                 _ensure_talk_anim_started(tts_id)
                 _tts_manual_started.add(tts_id)
-
-
                 if BARGE_IN and recorder and wakeword:
-
                     _flush_input_buffers(recorder)
                     if hasattr(wakeword, "reset"):
                         wakeword.reset()
-
-
                     start_wait = time.time()
                     timeout_sec = max(6.0, est * 2 + 2.0)
-
                     while time.time() < start_wait + timeout_sec:
                         ev = _tts_events.get(tts_id)
-
                         if ev and ev.is_set():
                             break
-
-
                         if wakeword.check_once(recorder):
                             logger.info("[barge-in] WAKEWORD DETECTED! Cancelling TTS...")
                             payload_cancel = json.dumps({"id": tts_id, "text": "STOP"}, ensure_ascii=False)
@@ -690,21 +632,15 @@ def say(text: str, recorder: Optional[Recorder] = None, wakeword: Optional[Wakew
                             anim_talk_stop()
                             break
                         time.sleep(0.02)
-
                     _tts_events.pop(tts_id, None)
                 else:
-
                     _wait_for_tts_done(tts_id, fallback_seconds=est, hard_timeout=max(6.0, est * 2 + 2.0))
-
                 time.sleep(0.1)
                 if _tts_states.get(tts_id) not in {"DONE", "CANCELLED", "ERROR"}:
                     anim_talk_stop()
                 _clear_tts_tracking(tts_id)
-
         if used:
             return
-
-
         anim_talk_start()
         if _fifo_write_nonblock(PIPER_FIFO, line):
             if not BARGE_IN:
@@ -712,8 +648,6 @@ def say(text: str, recorder: Optional[Recorder] = None, wakeword: Optional[Wakew
             anim_talk_stop()
             return
         anim_talk_stop()
-
-
         try:
             rate = str(_voice_sample_rate())
             cmd_piper = ["/opt/piper/piper", "--model", PIPER_VOICE, "--config", PIPER_VOICE_JSON,
@@ -784,18 +718,14 @@ def speak_and_back_to_idle(text: str, recorder, kw=None):
         set_global_listen_state(False)
         recorder.set_listen(False)
         recorder.flush()
-
     try:
         say(text, recorder=recorder, wakeword=kw)
     finally:
         if not BARGE_IN:
             set_global_listen_state(False)
-
             post_cd = float(os.getenv("COOLDOWN_AFTER_TTS_S", "0.5"))
             if post_cd > 0:
                 time.sleep(post_cd)
-
-
             _flush_input_buffers(recorder)
             if kw is not None:
                 kw.reset_after_tts()
@@ -886,11 +816,9 @@ def llm_chat_once(user_text: str) -> str:
         except Exception: pass
     return _fallback_chat_once(user_text).strip()
 
-
 def _ollama_chat(messages: list[dict], model: str | None = None, temperature: float | None = None, num_predict: int | None = None, timeout: float = 120.0) -> str:
     """
     Sends a chat request to the Ollama API.
-
     Args:
         messages: List of conversation messages.
         model: Optional model override. Defaults to env OLLAMA_MODEL.
@@ -900,11 +828,7 @@ def _ollama_chat(messages: list[dict], model: str | None = None, temperature: fl
     """
     base_url = os.getenv("OLLAMA_URL", "http://192.168.10.161:11434").rstrip('/')
     url = f"{base_url}/api/chat"
-
-
     used_model = model if model else os.getenv("OLLAMA_MODEL", "coglet:latest")
-
-
     if temperature is not None:
         temp_val = temperature
     else:
@@ -916,10 +840,8 @@ def _ollama_chat(messages: list[dict], model: str | None = None, temperature: fl
         "num_predict": int(os.getenv("LLM_NUM_PREDICT", "1024")),
     }
 
-
     if num_predict is not None:
         options["num_predict"] = num_predict
-
     payload = {
         "model": used_model,
         "messages": messages,
@@ -929,25 +851,19 @@ def _ollama_chat(messages: list[dict], model: str | None = None, temperature: fl
     }
 
     try:
-
         r = requests.post(url, json=payload, timeout=timeout)
         r.raise_for_status()
         js = r.json()
-
         done_reason = js.get("done_reason")
         if done_reason == "length":
             logger.warning("[llm] response stopped by length limit")
-
         msg = js.get("message", {}) or {}
         content = msg.get("content", "") or ""
-
         if not content:
             logger.warning("[llm] empty response; done_reason=%r raw=%r", done_reason, js)
-
         return content
     except Exception as e:
         logger.error("[llm] Request failed: %s", e)
-
         raise e
 
 def _pcm16_to_wav_bytes(pcm_bytes: bytes, sr_in: int, sr_out: int | None = None) -> bytes:
@@ -991,48 +907,35 @@ def _http_stt_request(pcm_bytes: bytes, sample_rate: int) -> dict | None:
 def stt_transcribe(pcm_bytes: bytes, sample_rate: int) -> dict | None:
     return _http_stt_request(pcm_bytes, sample_rate)
 
-
 def _uses_xvf_vad_wake() -> bool:
     return WAKEWORD_BACKEND_MODE in XVF_WAKE_BACKENDS or WAKEWORD_BACKEND_MODE == "hybrid"
-
 
 def _uses_openwakeword() -> bool:
     return WAKEWORD_BACKEND_MODE not in XVF_WAKE_BACKENDS
 
-
 def main():
     logger.info("[pi] Coglet PI starting v%s", __version__)
-
     if DEMOMODE:
         demomode()
         return
-
     signal.signal(signal.SIGINT, _graceful_shutdown)
     signal.signal(signal.SIGTERM, _graceful_shutdown)
-
     try:
         _run_startup_checks(logger)
     except StartupCheckError as exc:
         logger.error("Startup checks failed: %s", exc)
         sys.exit(1)
-
     servo_setup = _initialize_all_servos(logger)
     _initialize_status_led()
-
-
     mic_hw = None
     if _XVF_MIC_AVAILABLE:
         mic_hw = ReSpeakerMic(logger)
         mic_hw.start()
     else:
         logger.info("[mic] Hardware VAD/DOA not available")
-
-
     if MODEL_READY:
         logger.info("[pi] model ready → speak")
         say(MODEL_READY)
-
-
     rec = Recorder(sr=MIC_SR, vad_aggr=VAD_AGGR)
     rec.start()
     use_xvf_vad_wake = _uses_xvf_vad_wake() and mic_hw is not None and getattr(mic_hw, "is_connected", False)
@@ -1046,8 +949,6 @@ def main():
         use_xvf_vad_wake,
         use_openwakeword,
     )
-
-
     face_tracker = None
     face_tracker_cleanup = None
     try:
@@ -1057,14 +958,12 @@ def main():
             face_tracker.start()
     except Exception as e:
         logger.error("Face tracking setup failed: %s", e)
-
     exit_requested = False
     last_activity_ts = time.monotonic()
     last_turn_ts = 0.0
     is_deep_sleep = False
     breath_center_pitch = 0.0
     xvf_vad_armed = not use_xvf_vad_wake
-
     try:
         while not exit_requested and not _shutdown_event.is_set():
             try:
@@ -1075,12 +974,9 @@ def main():
                     _start_idle_animation()
                     if use_xvf_vad_wake and not use_openwakeword and XVF_WAKE_HOLD_EYELIDS:
                         _eyelids_set_mode("hold")
-
-
                 wake_detected = False
                 target_doa = None
                 wake_source = ""
-
                 while not wake_detected and not _shutdown_event.is_set():
                     if mic_hw:
                         is_speaking, raw_angle = mic_hw.get_status()
@@ -1128,20 +1024,14 @@ def main():
                         processed_chunks += 1
                         q_size = rec.get_queue_size() if hasattr(rec, "get_queue_size") else rec._q.qsize()
 
-
                         if q_size == 0:
                             break
-
                         if processed_chunks >= max_chunks:
                             logger.debug("[audio] Wakeword loop lagging? Processed %d chunks, q_size=%d", processed_chunks, q_size)
                             break
-
                         if processed_chunks > 1 and q_size < 2:
                             break
-
                     if wake_detected: break
-
-
                     now = time.monotonic()
                     if not is_deep_sleep and (now - last_activity_ts > DEEP_SLEEP_TIMEOUT_S):
                         logger.info("[pi] Entering Deep Sleep")
@@ -1151,22 +1041,14 @@ def main():
                         _stop_idle_animation()
                         _eyelids_set_mode("closed")
                         rec.flush()
-
-
                     if is_deep_sleep:
                         phase = math.sin(now * 1.5)
-
                         set_deep_sleep_led_pulse(phase)
-
                     time.sleep(0.01)
-
                 if _shutdown_event.is_set(): break
-
-
                 if is_deep_sleep:
                     logger.info("[pi] Waking up!")
                     is_deep_sleep = False
-
                     if hasattr(kw, "reset"): kw.reset()
                     rec.flush()
                     _apply_personality_neutral_pose()
@@ -1177,117 +1059,78 @@ def main():
                              object.__setattr__(face_tracker._config, 'patrol_enabled', True)
                         face_tracker.start()
                     time.sleep(0.5)
-
                 last_activity_ts = time.monotonic()
                 _stop_idle_animation()
-
                 logger.info("[pi] %s detected", "speech" if wake_source == "xvf_vad" else "wakeword")
                 direct_vad_capture = wake_source == "xvf_vad" and not use_openwakeword
                 if direct_vad_capture:
                     _led_set_state_safe(CogletState.LISTENING)
                 else:
                     rec.set_listen(False)
-
-
                 if not direct_vad_capture and mic_hw and target_doa is not None:
                     raw_angle = target_doa
-
                     DOA_OFFSET = 0
                     TURN_SPEED = 40.0
                     SEC_PER_DEG = 0.015
-
-
                     rel_angle = (raw_angle - DOA_OFFSET) % 360
                     if rel_angle > 180: rel_angle -= 360
-
-
                     if -90 <= rel_angle <= 90:
-
                         if abs(rel_angle) > 10:
                             logger.info(f"[body] Turning body by {rel_angle}°")
-
                             lwh = _get_anim_servo("LWH")
                             rwh = _get_anim_servo("RWH")
-
                             if lwh and rwh:
                                 duration = abs(rel_angle) * SEC_PER_DEG
                                 duration = min(0.8, duration)
-
-
                                 dir_factor = 1.0 if rel_angle > 0 else -1.0
-
-
                                 lwh.move_to(TURN_SPEED * dir_factor)
                                 rwh.move_to(-TURN_SPEED * dir_factor)
                                 lwh.update(1.0)
                                 rwh.update(1.0)
-
                                 time.sleep(duration)
-
-
                                 lwh.move_to(0.0)
                                 rwh.move_to(0.0)
                                 lwh.update(1.0)
                                 rwh.update(1.0)
-
-
                                 if hasattr(mic_hw, "_silence_counter"):
                                     mic_hw._silence_counter = 50
-
-
                 if not direct_vad_capture:
                     rec.flush()
                     say(MODEL_CONFIRM)
-
-
                     post_cd = float(os.getenv("COOLDOWN_AFTER_TTS_S", "0.5"))
                     if post_cd > 0:
                         time.sleep(post_cd)
                     rec.flush()
                     rec.set_listen(True)
-
                 if os.getenv("LLM_RESET_ON_WAKE", "1") in ("1", "true"):
                     _conv.reset()
-
-
                 endpoint = SpeechEndpoint(sr=rec.sr, vad_aggr=rec.vad_aggr)
                 anim_listen_start()
                 try:
-
                     if mic_hw:
                         mic_hw.set_paused(True)
                     pcm, dur = endpoint.record(rec)
                 finally:
-
                     if mic_hw:
                         mic_hw.set_paused(False)
                     anim_listen_stop()
-
                 if len(pcm) < int(0.2 * rec.sr) * 2:
                     logger.info("[pi] silence; back to idle")
                     continue
-
                 last_activity_ts = time.monotonic()
                 _led_set_state_safe(CogletState.THINKING)
-
-
                 stt = stt_transcribe(pcm, rec.sr)
                 user_text = (stt.get("text") or "").strip() if stt else ""
                 if not user_text:
                     continue
-
                 logger.info("[pi] user: %s", user_text)
                 if _is_program_exit_command(user_text):
                     say(MODEL_BYEBYE)
                     break
-
-
                 if _is_email_request(user_text):
                     _handle_email_request(user_text, rec, kw)
                     last_activity_ts = time.monotonic()
-
                     continue
-
                 _conv.add_user(user_text)
                 anim_think_start()
                 try:
@@ -1295,26 +1138,20 @@ def main():
                 except Exception:
                     anim_think_stop()
                     raise
-
                 if reply:
                     _conv.add_assistant(reply)
                     logger.info("[pi] assistant: %s", reply)
                     speak_and_back_to_idle(clean_tts_text(reply), rec, kw)
                 anim_think_stop()
                 last_activity_ts = time.monotonic()
-
-
                 if os.getenv("FOLLOWUP_ENABLE", "1") in ("1", "true", "True"):
                     try: max_turns = int(os.getenv("FOLLOWUP_MAX_TURNS", "10"))
                     except: max_turns = 5
                     arm_s = float(os.getenv("FOLLOWUP_ARM_S", "3.0"))
                     fu_cd = float(os.getenv("FOLLOWUP_COOLDOWN_S", "0.10"))
                     turns = 0
-
                     while not exit_requested and not _shutdown_event.is_set() and (max_turns == 0 or turns < max_turns):
                         _led_set_state_safe(CogletState.AWAIT_FOLLOWUP)
-
-
                         sleep_s = fu_cd
                         if BARGE_IN:
                             try:
@@ -1323,7 +1160,6 @@ def main():
                                 tts_cd = 0.5
                             sleep_s = max(fu_cd, tts_cd)
                             rec.set_listen(False)
-
                         time.sleep(sleep_s)
                         rec.flush()
                         if BARGE_IN:
@@ -1332,48 +1168,38 @@ def main():
                         endpoint = SpeechEndpoint(sr=rec.sr, vad_aggr=rec.vad_aggr)
                         anim_listen_start()
                         try:
-
                             if mic_hw:
                                 mic_hw.set_paused(True)
                             pcm, dur = endpoint.record(rec, no_speech_timeout_s=arm_s)
                         finally:
-
                             if mic_hw:
                                 mic_hw.set_paused(False)
                             anim_listen_stop()
-
                         if len(pcm) < int(0.2 * rec.sr) * 2:
                             logger.info("[pi] no follow-up detected")
                             say(EOC_ACK)
                             break
-
                         last_activity_ts = time.monotonic()
-
                         stt = stt_transcribe(pcm, rec.sr)
                         user_text = (stt.get("text") or "").strip() if stt else ""
                         if not user_text:
                             say(EOC_ACK)
                             break
-
                         logger.info("[pi] user (fu): %s", user_text)
                         if _is_program_exit_command(user_text):
                             say(MODEL_BYEBYE)
                             exit_requested = True
                             _shutdown_event.set()
                             break
-
                         norm = _normalize_command_text(user_text)
                         if norm in {"danke", "stop", "nein danke", "tschüss", "byebye"}:
                             say(EOC_ACK)
                             break
-
-
                         if _is_email_request(user_text):
                             _handle_email_request(user_text, rec, kw)
                             last_activity_ts = time.monotonic()
                             turns += 1
                             continue
-
                         _conv.add_user(user_text)
                         anim_think_start()
                         try:
@@ -1381,7 +1207,6 @@ def main():
                         except Exception:
                             anim_think_stop()
                             raise
-
                         if reply:
                             _conv.add_assistant(reply)
                             logger.info("[pi] assistant (fu): %s", reply)
@@ -1389,17 +1214,12 @@ def main():
                             turns += 1
                         anim_think_stop()
                         last_activity_ts = time.monotonic()
-
                 _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
-
                 rec.flush()
                 if hasattr(kw, "reset"): kw.reset()
-
             except Exception as e:
                 logger.exception("[pi] Critical error in main loop: %s", e)
-
                 time.sleep(1.0)
-
                 try:
                     anim_think_stop()
                     anim_listen_stop()
@@ -1407,7 +1227,6 @@ def main():
                     _led_set_state_safe(CogletState.AWAIT_WAKEWORD)
                 except Exception:
                     pass
-
     except KeyboardInterrupt:
         logger.info("[pi] interrupted.")
         say(MODEL_BYEBYE)

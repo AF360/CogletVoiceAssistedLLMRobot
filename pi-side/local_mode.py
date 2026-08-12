@@ -823,7 +823,7 @@ def _ollama_chat(messages: list[dict], model: str | None = None, temperature: fl
         messages: List of conversation messages.
         model: Optional model override. Defaults to env OLLAMA_MODEL.
         temperature: Optional temperature override. Defaults to env LLM_TEMPERATURE.
-        num_predict: Optional max tokens to generate. Defaults to Ollama default (often 128).
+        num_predict: Optional max tokens to generate. Defaults to LLM_NUM_PREDICT, falls back to 1024 when unset.
         timeout: Request timeout in seconds. Defaults to 120.0.
     """
     base_url = os.getenv("OLLAMA_URL", "http://192.168.10.161:11434").rstrip('/')

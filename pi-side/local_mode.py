@@ -774,7 +774,7 @@ class ConversationMemory:
         return msgs
 
 _conv = ConversationMemory(
-    max_turns=int(os.getenv("LLM_CTX_TURNS", "6")),
+    max_turns=int(os.getenv("LLM_CTX_TURNS", "10")),
     system_prompt=os.getenv("LLM_SYSTEM_PROMPT", "")
 )
 

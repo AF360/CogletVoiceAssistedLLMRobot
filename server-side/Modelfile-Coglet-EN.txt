@@ -1,5 +1,5 @@
-# Base: Gemma3 27b 
-FROM gemma3:27b
+# Base: gemma4:12b-it-qat
+FROM gemma4:12b-it-qat
 
 # role and style for the little Coglet robot
 SYSTEM """

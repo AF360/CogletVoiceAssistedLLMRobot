@@ -1,4 +1,3 @@
-# Base: gemma4:12b-it-qat
 FROM gemma4:12b-it-qat
 
 # role and style for the little Coglet robot

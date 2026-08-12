@@ -1146,7 +1146,7 @@ def main():
                 last_activity_ts = time.monotonic()
                 if os.getenv("FOLLOWUP_ENABLE", "1") in ("1", "true", "True"):
                     try: max_turns = int(os.getenv("FOLLOWUP_MAX_TURNS", "10"))
-                    except: max_turns = 5
+                    except ValueError: max_turns = 10
                     arm_s = float(os.getenv("FOLLOWUP_ARM_S", "3.0"))
                     fu_cd = float(os.getenv("FOLLOWUP_COOLDOWN_S", "0.10"))
                     turns = 0

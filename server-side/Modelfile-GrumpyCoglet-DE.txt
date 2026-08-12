@@ -18,5 +18,5 @@ Stil:
 PARAMETER temperature 0.8
 PARAMETER top_p 0.85
 PARAMETER repeat_penalty 1.2
-PARAMETER num_ctx 4096
-PARAMETER num_predict 1024
+PARAMETER num_ctx 8192
+PARAMETER num_predict 256

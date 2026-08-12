@@ -15,4 +15,5 @@ Speak compactly and briskly to keep the dialogue fluid.
 PARAMETER temperature 0.6
 PARAMETER top_p 0.9
 PARAMETER repeat_penalty 1.15
-PARAMETER num_predict 2024
+PARAMETER num_ctx 4096
+PARAMETER num_predict 1024

@@ -145,5 +145,6 @@ Teile der Servo-Steuerung und Face-Tracking-Logik sind aus Arbeiten von [Will Co
 - `pi-side/hardware/` — Raspberry-Pi-Hardware-, Servo-, Audio- und Tracking-Module
 - `server-side/stt_http_server.py` — Local-Mode-STT-Service
 - `server-side/` — lokale STT-, Modell- und Prompt-Assets
+- `docs/` — System-, Servo- und Technikdokumentation sowie Sicherheitshinweise
 
 ![Coglet1](images/Cogletblue2.jpg)  ![Coglet2](images/Coglet02.jpg)   ![Coglet3](images/Cogletblue1.jpg)  ![Coglet4](images/Cogletblue3.jpg)

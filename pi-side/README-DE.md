@@ -1,4 +1,4 @@
-# Raspberry-Pi-Seite: Setup & Code
+# Raspberry-Pi-Seite: Betriebsmodi & Code
 
 ## Betriebsmodi
 
@@ -12,6 +12,17 @@ Coglet hat zwei bewusst getrennte Launcher:
 `coglet-local.py` ist ausschließlich lokal. Es enthält keinen OpenAI-Realtime-Ausführungspfad mehr. Um Cloud Mode zu verwenden, starte `coglet-cloud.py` explizit.
 
 Der Launcher wählt den Modus.
+
+## Installation
+
+Die vollständige Erstinstallation der Raspberry-Pi-Seite – einschließlich
+Systempaketen, Python-`.venv`, Hardware-Abhängigkeiten, Audio, Piper/MQTT,
+systemd-Service und Grundkonfiguration – ist beschrieben in:
+
+**[INSTALLATION-DE.md](INSTALLATION-DE.md)**
+
+Die folgenden Abschnitte gehen von einer abgeschlossenen Installation unter
+`/opt/coglet-pi` und einer angelegten privaten `env-exports.sh` aus.
 
 ## Dateien
 
@@ -30,28 +41,12 @@ Der Launcher wählt den Modus.
 - `piper_mqtt_tts` — Beispiel-Environment-Datei `/etc/default/piper_mqtt_tts`
 - `say` — sendet Text an die Piper-MQTT-Bridge; typischerweise installiert als `/usr/local/bin/say`
 - `say-cancel` — bricht Piper-Sprache über MQTT ab
-- `requirements.txt` — Python-Abhängigkeiten
+- `INSTALLATION-DE.md` — vollständige Installationsanleitung für die Raspberry-Pi-Seite
+- `INSTALLATION.md` — englische Installationsanleitung
+- `requirements.txt` — Python-Abhängigkeiten für die vollständige Roboter-Variante
+- `requirements-voice.txt` — reduzierte Python-Abhängigkeiten für Voice-only
 - `hardware/` — Raspberry-Pi-Audio-, Servo-, Status-LED-, Face-Tracking- und Kalibrierungsmodule
-- `README.md` — diese Datei
-
-## Installationspfad
-
-Die Beispiele unten gehen aus von:
-
-```text
-/opt/coglet-pi
-```
-
-Private gemeinsame Umgebungsdatei einmalig erstellen und virtuelle Umgebung aktivieren:
-
-```bash
-cd /opt/coglet-pi
-cp env-exports.sh.example env-exports.sh
-vi env-exports.sh
-source .venv/bin/activate
-```
-
-Beide Launcher sourcen dieselbe `env-exports.sh`. Das ausgewählte Executable bestimmt den Betriebsmodus.
+- `README-DE.md` — diese Datei
 
 ## Local Mode
 
@@ -63,8 +58,6 @@ source .venv/bin/activate
 source env-exports.sh
 python3 coglet-local.py
 ```
-
-Die Produktionsinstallation kann `coglet-local.py` stattdessen über ihren systemd-Service starten.
 
 ### Lokaler Gesprächspfad
 
@@ -234,6 +227,9 @@ Piper wird nicht direkt von `coglet-local.py` gestartet. Die separate MQTT-Bridg
 - unterstützt Abbruch über den Helfer `say-cancel`.
 
 Piper wird für Local-Mode-Prompts, Bestätigungen und Hauptgesprächsantworten verwendet. Cloud-Mode-Antworten verwenden die ausgewählte OpenAI-Realtime-Stimme.
+
+Installation und Einrichtung von Piper, Mosquitto und der systemd-Bridge sind in
+[INSTALLATION-DE.md](INSTALLATION-DE.md) beschrieben.
 
 ## Servo-Layout (PCA9685)
 

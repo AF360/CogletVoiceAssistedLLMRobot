@@ -44,7 +44,7 @@ export OPENAI_REALTIME_BARGE_IN_COOLDOWN_S="0.8"
 # export OPENAI_REALTIME_INSTRUCTIONS_FILE="/opt/coglet-pi/prompts/openai-realtime-coglet-de.txt"
 
 # NOTE: Voice/Model configs are handled dynamically via COGLET_LANG in python.
-# German default: de_DE-thorsten-high. English default: en_US-lessac-high.
+# German default: de_DE-ramona-low. English default: en_US-lessac-high.
 # Uncomment below only to override the language defaults.
 # export STT_LANG="en"
 # export PIPER_MODEL="/opt/piper/voices/en_US-lessac-high.onnx"

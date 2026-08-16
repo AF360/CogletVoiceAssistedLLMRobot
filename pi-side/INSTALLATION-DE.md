@@ -299,8 +299,8 @@ ps -ef | grep '[p]iper'
 mkdir -p /tmp/piper-test
 printf 'Dies ist ein Piper-Test.\n' | \
   /opt/piper/piper \
-    --model /opt/piper/voices/de_DE-thorsten-high.onnx \
-    --config /opt/piper/voices/de_DE-thorsten-high.onnx.json \
+    --model /opt/piper/voices/de_DE-ramona-low.onnx \
+    --config /opt/piper/voices/de_DE-ramona-low.onnx.json \
     --sentence_silence 0.06 \
     --output_dir /tmp/piper-test
 ```
@@ -315,24 +315,24 @@ offiziellen `2023.11.14-2`-Binary ist `--output_dir` der passende CLI-Schalter.
 
 ## 10. Deutsche Piper-Stimme installieren
 
-Coglets deutscher Standard ist derzeit `de_DE-thorsten-high`:
+Coglets deutscher Standard ist derzeit `de_DE-ramona-low`:
 
 ```bash
 cd /opt/piper/voices
 
 wget \
-  https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/high/de_DE-thorsten-high.onnx
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/ramona/low/de_DE-ramona-low.onnx
 
 wget \
-  https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/high/de_DE-thorsten-high.onnx.json
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/ramona/low/de_DE-ramona-low.onnx.json
 ```
 
 Prüfen:
 
 ```bash
 ls -lh \
-  /opt/piper/voices/de_DE-thorsten-high.onnx \
-  /opt/piper/voices/de_DE-thorsten-high.onnx.json
+  /opt/piper/voices/de_DE-ramona-low.onnx \
+  /opt/piper/voices/de_DE-ramona-low.onnx.json
 ```
 
 Optional kann für englische Ausgabe `en_US-lessac-high` installiert werden:
@@ -352,8 +352,8 @@ Ein Einzeltest unabhängig von MQTT:
 ```bash
 printf 'Hallo, ich bin Coglet.\n' | \
   /opt/piper/piper \
-    --model /opt/piper/voices/de_DE-thorsten-high.onnx \
-    --config /opt/piper/voices/de_DE-thorsten-high.onnx.json \
+    --model /opt/piper/voices/de_DE-ramona-low.onnx \
+    --config /opt/piper/voices/de_DE-ramona-low.onnx.json \
     --output_file /tmp/coglet-piper-test.wav
 ```
 
@@ -412,8 +412,8 @@ Typische Werte:
 
 ```bash
 PIPER_BIN=/opt/piper/piper
-PIPER_MODEL=/opt/piper/voices/de_DE-thorsten-high.onnx
-PIPER_CFG=/opt/piper/voices/de_DE-thorsten-high.onnx.json
+PIPER_MODEL=/opt/piper/voices/de_DE-ramona-low.onnx
+PIPER_CFG=/opt/piper/voices/de_DE-ramona-low.onnx.json
 PIPER_SENTENCE_SILENCE=0.06
 
 SPEAKER_DEVICE=spk

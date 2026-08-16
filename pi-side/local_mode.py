@@ -78,8 +78,8 @@ LANG_CODE = os.getenv("COGLET_LANG", "de").lower().strip()
 _STRINGS = {
     "de": {
         "stt_lang": "de",
-        "piper_voice": "/opt/piper/voices/de_DE-thorsten-high.onnx",
-        "piper_json": "/opt/piper/voices/de_DE-thorsten-high.onnx.json",
+        "piper_voice": "/opt/piper/voices/de_DE-ramona-low.onnx",
+        "piper_json": "/opt/piper/voices/de_DE-ramona-low.onnx.json",
 
         "model_ready": "Alle Subsysteme hochgefahren. Ich bin bereit zu helfen.",
         "model_confirm": "Ja?",

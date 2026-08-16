@@ -64,8 +64,8 @@ export WHISPER_VAD_MIN_SIL_MS=300
 Piper wird auf der Raspberry-Pi-Seite konfiguriert. Für deutschen Local Mode verwendet `local_mode.py` standardmäßig:
 
 ```bash
-/opt/piper/voices/de_DE-thorsten-high.onnx
-/opt/piper/voices/de_DE-thorsten-high.onnx.json
+/opt/piper/voices/de_DE-ramona-low.onnx
+/opt/piper/voices/de_DE-ramona-low.onnx.json
 ```
 
 Für englischen Local Mode verwendet `local_mode.py` standardmäßig:

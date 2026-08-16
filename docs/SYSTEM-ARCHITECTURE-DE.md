@@ -46,8 +46,8 @@ OLLAMA_MODEL=coglet:latest
 COGLET_LANG=de
 TTS_MODE=mqtt
 PIPER_MQTT_HOST=127.0.0.1
-PIPER_VOICE=/opt/piper/voices/de_DE-thorsten-high.onnx
-PIPER_VOICE_JSON=/opt/piper/voices/de_DE-thorsten-high.onnx.json
+PIPER_VOICE=/opt/piper/voices/de_DE-ramona-low.onnx
+PIPER_VOICE_JSON=/opt/piper/voices/de_DE-ramona-low.onnx.json
 ```
 
 Für den englischen Local Mode verwendet `local_mode.py` standardmäßig `en_US-lessac-high`, sofern dies nicht in der Umgebung überschrieben wird.

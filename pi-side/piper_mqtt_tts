@@ -2,8 +2,8 @@
 
 # Piper
 PIPER_BIN=/opt/piper/piper
-PIPER_MODEL=/opt/piper/voices/de_DE-thorsten-high.onnx
-PIPER_CFG=/opt/piper/voices/de_DE-thorsten-high.onnx.json
+PIPER_MODEL=/opt/piper/voices/de_DE-ramona-low.onnx
+PIPER_CFG=/opt/piper/voices/de_DE-ramona-low.onnx.json
 PIPER_SENTENCE_SILENCE=0.06
 
 # Audio

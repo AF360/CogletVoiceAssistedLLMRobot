@@ -2,7 +2,7 @@
 
 This guide installs the GPU-server STT (Faster-Whisper) and Ollama with LLM components used by `pi-side/coglet-local.py`:
 
-Local Mode uses Ollama for LLM responses and Piper/MQTT for TTS. Piper runs on the Raspberry Pi side, with the German default voice set to Thorsten.
+Local Mode uses Ollama for LLM responses and Piper/MQTT for TTS. Piper runs on the Raspberry Pi side, with the German default voice set to Ramona.
 
 The dedicated Cloud launcher `pi-side/coglet-cloud.py` connects directly to OpenAI Realtime and does not use this server.
 
@@ -252,8 +252,8 @@ PIPER_MQTT_HOST=127.0.0.1
 German default voice:
 
 ```bash
-PIPER_VOICE=/opt/piper/voices/de_DE-thorsten-high.onnx
-PIPER_VOICE_JSON=/opt/piper/voices/de_DE-thorsten-high.onnx.json
+PIPER_VOICE=/opt/piper/voices/de_DE-ramona-low.onnx
+PIPER_VOICE_JSON=/opt/piper/voices/de_DE-ramona-low.onnx.json
 ```
 
 English default voice:
